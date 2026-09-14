@@ -8,6 +8,12 @@
   DSH-first Agent TUI，使用与 DSH 同款的 Cordis 插件能力，也可连接其他兼容 ACP agent。
 </p>
 
+> **Fork 说明**：本仓库是 [openma-ai/Martty](https://github.com/openma-ai/Martty) 的下游 fork，
+> 由 [zcode-acp](https://github.com/william0wang/zcode-acp) 项目维护，以 npm 包
+> [`zcode-acp-martty`](https://www.npmjs.com/package/zcode-acp-martty) 发布，仅包含针对该桥的适配补丁
+> （agent 取消请求时自动关闭待答弹窗；状态栏显示模型显示名而非内部编码）。上游合并策略：定期同步。
+> 上游文档与 issue 仍见原仓库。
+
 <p align="center">
   <a href="README.md">中文</a> · <a href="README.en.md">English</a>
 </p>

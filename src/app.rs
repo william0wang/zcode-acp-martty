@@ -18,6 +18,8 @@ use crossterm::event::{
 };
 use unicode_width::UnicodeWidthChar;
 
+use agent_client_protocol::schema::v1::RequestId;
+
 use crate::bus::{
     permission_ask_default_sel, AppEvent, Cmd, CtlEvent, PermissionAskOption, PermissionAskReply,
     SessionListItem,
@@ -963,6 +965,9 @@ pub(crate) const AGENT_HISTORY_ID: &str = "__martty_internal__:agent-history";
 
 /// Overlay for one ACP `session/request_permission` ask.
 pub struct PermissionAskOverlay {
+    /// JSON-RPC id of the incoming request — the key `AskCancelled` matches
+    /// when the agent cancels a request that was answered on another client.
+    pub(crate) request_id: RequestId,
     pub title: String,
     pub sel: usize,
     pub options: Vec<PermissionAskOption>,
@@ -971,6 +976,8 @@ pub struct PermissionAskOverlay {
 
 /// One live ACP form elicitation. Its editor is separate from the composer.
 pub struct ElicitationAskOverlay {
+    /// See [`PermissionAskOverlay::request_id`].
+    pub(crate) request_id: RequestId,
     pub form: crate::elicitation::ElicitationFormState,
     /// Scroll offset of the markdown description pane (render clamps it to
     /// the actual content height, so `usize::MAX` reliably reaches the end).
@@ -4497,18 +4504,23 @@ impl App {
             }
             AppEvent::PermissionAsk {
                 session_id,
+                request_id,
                 title,
                 options,
                 reply,
             } => {
-                self.open_permission_ask(&session_id, title, options, reply);
+                self.open_permission_ask(&session_id, request_id, title, options, reply);
             }
             AppEvent::ElicitationAsk {
                 session_id,
+                request_id,
                 form,
                 reply,
             } => {
-                self.open_elicitation_ask(session_id.as_deref(), form, reply);
+                self.open_elicitation_ask(session_id.as_deref(), request_id, form, reply);
+            }
+            AppEvent::AskCancelled { request_id } => {
+                self.dismiss_ask_by_request_id(&request_id);
             }
             AppEvent::ShellDone { id, code, output } => {
                 if let Some(pos) = self
@@ -6573,6 +6585,7 @@ impl App {
     fn open_permission_ask(
         &mut self,
         session_id: &str,
+        request_id: RequestId,
         title: String,
         options: Vec<PermissionAskOption>,
         reply: tokio::sync::oneshot::Sender<PermissionAskReply>,
@@ -6603,6 +6616,7 @@ impl App {
         }
         let sel = permission_ask_default_sel(&options);
         let overlay = PermissionAskOverlay {
+            request_id,
             title,
             sel,
             options,
@@ -6636,12 +6650,14 @@ impl App {
     fn open_elicitation_ask(
         &mut self,
         session_id: Option<&str>,
+        request_id: RequestId,
         form: crate::elicitation::ElicitationForm,
         reply: tokio::sync::oneshot::Sender<crate::elicitation::ElicitationReply>,
     ) {
         let mut form_state = crate::elicitation::ElicitationFormState::new(form);
         form_state.locale = self.locale;
         let overlay = ElicitationAskOverlay {
+            request_id,
             form: form_state,
             scroll: 0,
             reply: Some(reply),
@@ -6677,6 +6693,55 @@ impl App {
             }
         }
         self.needs_redraw = true;
+    }
+
+    /// Drop the permission/elicitation overlay whose request the agent
+    /// cancelled (`$/cancel_request` → the ACP task's cancellation watcher
+    /// → `AppEvent::AskCancelled`). The request was answered on another
+    /// client; a stale overlay would only collect a dead reply. Dropping the
+    /// overlay routes a `Cancelled` reply through its `Drop` impl, so the
+    /// responder still settles if the cancellation raced the watcher. Asks
+    /// follow their session, so parked tabs are scanned too.
+    fn dismiss_ask_by_request_id(&mut self, request_id: &RequestId) -> bool {
+        let mut dismissed = false;
+        if self
+            .permission_ask
+            .as_ref()
+            .is_some_and(|ask| &ask.request_id == request_id)
+        {
+            self.permission_ask = None;
+            dismissed = true;
+        }
+        if self
+            .elicitation_ask
+            .as_ref()
+            .is_some_and(|ask| &ask.request_id == request_id)
+        {
+            self.elicitation_ask = None;
+            dismissed = true;
+        }
+        for slot in self.parked.iter_mut() {
+            if slot
+                .permission_ask
+                .as_ref()
+                .is_some_and(|ask| &ask.request_id == request_id)
+            {
+                slot.permission_ask = None;
+                dismissed = true;
+            }
+            if slot
+                .elicitation_ask
+                .as_ref()
+                .is_some_and(|ask| &ask.request_id == request_id)
+            {
+                slot.elicitation_ask = None;
+                dismissed = true;
+            }
+        }
+        if dismissed {
+            self.needs_redraw = true;
+        }
+        dismissed
     }
 
     fn handle_picker_key(&mut self, key: KeyEvent, ctl: &Controller) {
@@ -9781,3 +9846,7 @@ mod scroll_tests;
 #[cfg(test)]
 #[path = "../tests/unit/app__at_menu_tests.rs"]
 mod at_menu_tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/app__ask_cancel_tests.rs"]
+mod ask_cancel_tests;

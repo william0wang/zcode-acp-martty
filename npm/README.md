@@ -8,6 +8,14 @@
   A DSH-first terminal with the same Cordis plugin model, plus support for other ACP agents.
 </p>
 
+> **Fork note:** `zcode-acp-martty` is the downstream fork maintained by the
+> [zcode-acp](https://github.com/william0wang/zcode-acp) project
+> ([source](https://github.com/william0wang/zcode-acp-martty), upstream:
+> [openma-ai/Martty](https://github.com/openma-ai/Martty)). It carries only small
+> bridge-adaptation patches: pending permission/elicitation overlays are dismissed
+> when the agent cancels the request (`$/cancel_request`), and the status bar shows
+> the model's display name instead of its encoded option value.
+
 ---
 
 Native binaries are packaged for macOS arm64, macOS x64, Linux x64, and Windows

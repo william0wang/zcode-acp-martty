@@ -247,6 +247,7 @@ fn plan_review_elicitation_renders_markdown_and_scrolls() {
             // The probe request is scoped to session s1, which this app
             // does not know — the fallback surfaces it on the live view.
             session_id: Some("s1".into()),
+            request_id: agent_client_protocol::schema::v1::RequestId::Null,
             form,
             reply: tx,
         },

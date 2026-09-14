@@ -779,6 +779,61 @@ fn config_options_report_the_session_model() {
 }
 
 #[test]
+fn config_options_show_the_model_label_not_the_encoded_value() {
+    // Agents may encode provider+model into `value` (composite ids) while the
+    // human label lives on the entry's `name` — the chip must show the label.
+    let events = config_option_events(
+        "zcode-session".into(),
+        &json!([
+            {
+                "type": "select",
+                "id": "model",
+                "category": "model",
+                "currentValue": "builtin:bigmodel-coding-plan\\GLM-5.3",
+                "options": [
+                    { "value": "builtin:bigmodel-coding-plan\\GLM-5.3", "name": "GLM-5.3" },
+                    { "value": "acme\\claude-x", "name": "Acme › claude-x" }
+                ]
+            }
+        ]),
+    );
+
+    assert_eq!(
+        events,
+        vec![UiEvent::SessionModel {
+            session: "zcode-session".into(),
+            model: "GLM-5.3".into(),
+        }]
+    );
+}
+
+#[test]
+fn config_options_fall_back_to_the_raw_model_value_when_no_entry_matches() {
+    let events = config_option_events(
+        "zcode-session".into(),
+        &json!([
+            {
+                "type": "select",
+                "id": "model",
+                "category": "model",
+                "currentValue": "mystery-model",
+                "options": [
+                    { "value": "other-model", "name": "Other" }
+                ]
+            }
+        ]),
+    );
+
+    assert_eq!(
+        events,
+        vec![UiEvent::SessionModel {
+            session: "zcode-session".into(),
+            model: "mystery-model".into(),
+        }]
+    );
+}
+
+#[test]
 fn config_options_report_semantic_reasoning_effort() {
     let events = config_option_events(
         "codex-session".into(),

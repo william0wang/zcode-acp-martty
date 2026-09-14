@@ -1579,10 +1579,13 @@ where
                         RequestPermissionOutcome::Cancelled,
                     ));
                 }
+                let request_id = responder.id().clone();
+                let cancellation = responder.cancellation();
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 if bus_p
                     .send(AppEvent::PermissionAsk {
                         session_id: req.session_id.to_string(),
+                        request_id: request_id.clone(),
                         title,
                         options,
                         reply: tx,
@@ -1594,13 +1597,26 @@ where
                     ));
                 }
                 // Wait off the ACP dispatch loop so session/update still paints.
+                // The peer may cancel the request while it waits (`$/cancel_request`
+                // — e.g. a multi-client bridge whose first-response-wins race picked
+                // another client): the cancellation watcher resolves, the stale
+                // overlay is dismissed via `AskCancelled`, and the peer gets a
+                // prompt Cancelled response instead of a reply to a dead request.
+                let bus_cancel = bus_p.clone();
                 tokio::spawn(async move {
-                    let reply = rx.await.unwrap_or(PermissionAskReply::Cancelled);
-                    let outcome = match reply {
-                        PermissionAskReply::Selected(id) => RequestPermissionOutcome::Selected(
-                            SelectedPermissionOutcome::new(id),
-                        ),
-                        PermissionAskReply::Cancelled => RequestPermissionOutcome::Cancelled,
+                    let outcome = tokio::select! {
+                        reply = rx => match reply {
+                            Ok(PermissionAskReply::Selected(id)) => {
+                                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(id))
+                            }
+                            Ok(PermissionAskReply::Cancelled) | Err(_) => {
+                                RequestPermissionOutcome::Cancelled
+                            }
+                        },
+                        _ = cancellation.cancelled() => {
+                            let _ = bus_cancel.send(AppEvent::AskCancelled { request_id });
+                            RequestPermissionOutcome::Cancelled
+                        }
                     };
                     let _ = responder.respond(RequestPermissionResponse::new(outcome));
                 });
@@ -1624,9 +1640,12 @@ where
                     }
                 };
                 let (tx, rx) = tokio::sync::oneshot::channel();
+                let request_id = responder.id().clone();
+                let cancellation = responder.cancellation();
                 if bus_e
                     .send(AppEvent::ElicitationAsk {
                         session_id,
+                        request_id: request_id.clone(),
                         form,
                         reply: tx,
                     })
@@ -1637,40 +1656,49 @@ where
                     ));
                 }
                 // Keep dispatching ACP traffic while the user completes the form.
+                // Peer cancellation (`$/cancel_request`) dismisses the stale form
+                // and answers the peer at once — see the permission arm above.
+                let bus_cancel = bus_e.clone();
                 tokio::spawn(async move {
-                    let action = match rx.await {
-                        Ok(crate::elicitation::ElicitationReply::Accepted(values)) => {
-                            let content: std::collections::BTreeMap<
-                                String,
-                                ElicitationContentValue,
-                            > = values
-                                .into_iter()
-                                .map(|(name, value)| {
-                                    let value = match value {
-                                        crate::elicitation::ElicitationValue::String(value) => {
-                                            ElicitationContentValue::String(value)
-                                        }
-                                        crate::elicitation::ElicitationValue::Integer(value) => {
-                                            ElicitationContentValue::Integer(value)
-                                        }
-                                        crate::elicitation::ElicitationValue::Number(value) => {
-                                            ElicitationContentValue::Number(value)
-                                        }
-                                        crate::elicitation::ElicitationValue::Boolean(value) => {
-                                            ElicitationContentValue::Boolean(value)
-                                        }
-                                        crate::elicitation::ElicitationValue::StringArray(value) => {
-                                            ElicitationContentValue::StringArray(value)
-                                        }
-                                    };
-                                    (name, value)
-                                })
-                                .collect();
-                            ElicitationAction::Accept(
-                                ElicitationAcceptAction::new().content(content),
-                            )
-                        }
-                        Ok(crate::elicitation::ElicitationReply::Cancelled) | Err(_) => {
+                    let action = tokio::select! {
+                        reply = rx => match reply {
+                            Ok(crate::elicitation::ElicitationReply::Accepted(values)) => {
+                                let content: std::collections::BTreeMap<
+                                    String,
+                                    ElicitationContentValue,
+                                > = values
+                                    .into_iter()
+                                    .map(|(name, value)| {
+                                        let value = match value {
+                                            crate::elicitation::ElicitationValue::String(value) => {
+                                                ElicitationContentValue::String(value)
+                                            }
+                                            crate::elicitation::ElicitationValue::Integer(value) => {
+                                                ElicitationContentValue::Integer(value)
+                                            }
+                                            crate::elicitation::ElicitationValue::Number(value) => {
+                                                ElicitationContentValue::Number(value)
+                                            }
+                                            crate::elicitation::ElicitationValue::Boolean(value) => {
+                                                ElicitationContentValue::Boolean(value)
+                                            }
+                                            crate::elicitation::ElicitationValue::StringArray(value) => {
+                                                ElicitationContentValue::StringArray(value)
+                                            }
+                                        };
+                                        (name, value)
+                                    })
+                                    .collect();
+                                ElicitationAction::Accept(
+                                    ElicitationAcceptAction::new().content(content),
+                                )
+                            }
+                            Ok(crate::elicitation::ElicitationReply::Cancelled) | Err(_) => {
+                                ElicitationAction::Cancel
+                            }
+                        },
+                        _ = cancellation.cancelled() => {
+                            let _ = bus_cancel.send(AppEvent::AskCancelled { request_id });
                             ElicitationAction::Cancel
                         }
                     };

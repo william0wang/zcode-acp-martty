@@ -724,20 +724,27 @@ pub fn reasoning_effort_option(options: &Value) -> Option<&Value> {
 /// later `config_option_update` notifications.
 pub fn config_option_events(session: String, options: &Value) -> Vec<UiEvent> {
     let mut events = Vec::new();
-    if let Some(model) = options.as_array().and_then(|entries| {
-        entries
+    if let Some(model_value) = options.as_array().and_then(|entries| {
+        let model = entries
             .iter()
-            .find(|option| option.get("id").and_then(Value::as_str) == Some("model"))
-            .and_then(|option| {
-                option
-                    .get("currentValue")
-                    .or_else(|| option.get("current_value"))
-                    .and_then(Value::as_str)
-            })
+            .find(|option| option.get("id").and_then(Value::as_str) == Some("model"))?;
+        let value = model
+            .get("currentValue")
+            .or_else(|| model.get("current_value"))
+            .and_then(Value::as_str)?;
+        // Agents may encode provider+model into `value` (e.g. a composite id)
+        // while the human label lives on the matching entry's `name` — the
+        // status bar must show the label, like the editor dropdowns do.
+        let name = flatten_select_options(model.get("options").unwrap_or(&Value::Null))
+            .into_iter()
+            .find(|(entry_value, _, _)| entry_value == value)
+            .map(|(_, name, _)| name)
+            .unwrap_or_else(|| value.to_string());
+        Some(name)
     }) {
         events.push(UiEvent::SessionModel {
             session: session.clone(),
-            model: model.to_string(),
+            model: model_value,
         });
     }
     if let Some(active) = collaboration_mode_active(Some(options)) {

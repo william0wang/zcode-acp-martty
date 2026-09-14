@@ -5,11 +5,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/openma-ai/Martty.git"
+    "url": "git+https://github.com/william0wang/zcode-acp-martty.git"
   },
-  "homepage": "https://martty.sh",
+  "homepage": "https://github.com/william0wang/zcode-acp-martty#readme",
   "bugs": {
-    "url": "https://github.com/openma-ai/Martty/issues"
+    "url": "https://github.com/william0wang/zcode-acp-martty/issues"
   },
   "type": "module",
   "main": "lib/index.js",
