@@ -394,11 +394,11 @@ fn parked_subagent_permission_ask_does_not_clobber_live_tab() {
     app.open_new_session("s-two".into(), true);
 
     let (live_tx, _live_rx) = tokio::sync::oneshot::channel();
-    app.open_permission_ask("s-two", RequestId::Number(11), "live prompt ask".into(), Vec::new(), live_tx);
+    app.open_permission_ask("s-two", RequestId::Number(11), "live prompt ask".into(), None, Vec::new(), live_tx);
     assert!(app.permission_ask.is_some());
 
     let (sub_tx, _sub_rx) = tokio::sync::oneshot::channel();
-    app.open_permission_ask("sub-1", RequestId::Number(12), "subagent ask".into(), Vec::new(), sub_tx);
+    app.open_permission_ask("sub-1", RequestId::Number(12), "subagent ask".into(), None, Vec::new(), sub_tx);
 
     assert_eq!(app.permission_ask.as_ref().unwrap().title, "live prompt ask");
     assert!(app.parked[0].permission_ask.is_some());
@@ -733,6 +733,7 @@ fn permission_ask_follows_its_session_across_tab_switches() {
             session_id: "s-two".into(),
             request_id: RequestId::Number(21),
             title: "bash".into(),
+            details: None,
             options: ask_options(),
             reply: tx,
         },
@@ -787,6 +788,7 @@ fn ask_for_a_parked_session_waits_in_its_slot() {
             session_id: "dsh-test".into(),
             request_id: RequestId::Number(22),
             title: "write".into(),
+            details: None,
             options: ask_options(),
             reply: tx,
         },
@@ -863,6 +865,7 @@ fn unknown_session_ask_stays_answerable_on_the_live_view() {
             session_id: "s-foreign".into(),
             request_id: RequestId::Number(24),
             title: "bash".into(),
+            details: None,
             options: ask_options(),
             reply: tx,
         },
@@ -1118,6 +1121,7 @@ fn close_discards_draft_queue_and_cancels_the_parked_ask() {
             session_id: "s-two".into(),
             request_id: RequestId::Number(25),
             title: "rm".into(),
+            details: None,
             options: ask_options(),
             reply: tx,
         },

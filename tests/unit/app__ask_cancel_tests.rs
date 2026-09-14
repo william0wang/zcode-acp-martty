@@ -42,6 +42,7 @@ fn ask_options_event(
         session_id: "dsh-test".into(),
         request_id,
         title: "Run tool".into(),
+        details: None,
         options: ask_options(),
         reply,
     }
@@ -75,6 +76,7 @@ fn ask_cancel_dismisses_ask_parked_with_its_session() {
         session_id: "parked-1".into(),
         request_id: RequestId::Number(9),
         title: "Run tool".into(),
+        details: None,
         options: ask_options(),
         reply: tx,
     };

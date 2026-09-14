@@ -111,6 +111,7 @@ pub async fn confirm_write_outside(
             // them, so a synthetic (never matched) id is enough.
             request_id: crate::bus::AppEvent::LOCAL_ASK_ID.clone(),
             title: format!("write {} · outside workspace", path.display()),
+            details: None,
             options,
             reply: tx,
         })
@@ -163,6 +164,7 @@ pub async fn confirm_terminal_spawn(
             session_id: session_id.into(),
             request_id: crate::bus::AppEvent::LOCAL_ASK_ID.clone(),
             title: format!("run {} · in {}", shown, cwd.display()),
+            details: None,
             options,
             reply: tx,
         })

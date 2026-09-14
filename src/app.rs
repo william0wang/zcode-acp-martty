@@ -969,6 +969,10 @@ pub struct PermissionAskOverlay {
     /// when the agent cancels a request that was answered on another client.
     pub(crate) request_id: RequestId,
     pub title: String,
+    /// The agent's own explanation from the tool-call content. Rendered
+    /// wrapped under the title: a long path in the title alone is clipped by
+    /// the border, leaving the user unable to judge the request.
+    pub details: Option<String>,
     pub sel: usize,
     pub options: Vec<PermissionAskOption>,
     pub(crate) reply: Option<tokio::sync::oneshot::Sender<PermissionAskReply>>,
@@ -4506,10 +4510,11 @@ impl App {
                 session_id,
                 request_id,
                 title,
+                details,
                 options,
                 reply,
             } => {
-                self.open_permission_ask(&session_id, request_id, title, options, reply);
+                self.open_permission_ask(&session_id, request_id, title, details, options, reply);
             }
             AppEvent::ElicitationAsk {
                 session_id,
@@ -6587,6 +6592,7 @@ impl App {
         session_id: &str,
         request_id: RequestId,
         title: String,
+        details: Option<String>,
         options: Vec<PermissionAskOption>,
         reply: tokio::sync::oneshot::Sender<PermissionAskReply>,
     ) {
@@ -6618,6 +6624,7 @@ impl App {
         let overlay = PermissionAskOverlay {
             request_id,
             title,
+            details,
             sel,
             options,
             reply: Some(reply),

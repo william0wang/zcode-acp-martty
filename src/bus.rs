@@ -26,10 +26,15 @@ pub enum AppEvent {
     /// `request_id` is the JSON-RPC id of the incoming request — the key the
     /// ACP task's cancellation watcher uses to dismiss a stale overlay (the
     /// agent cancelled the request while another client answered it).
+    /// `details` carries the agent's own explanation from the tool-call
+    /// content (the bridge puts the denied path and stakes there); the popup
+    /// renders it under the title so the user sees the full request instead
+    /// of a border-clipped one-liner.
     PermissionAsk {
         session_id: String,
         request_id: RequestId,
         title: String,
+        details: Option<String>,
         options: Vec<PermissionAskOption>,
         reply: tokio::sync::oneshot::Sender<PermissionAskReply>,
     },

@@ -2573,6 +2573,7 @@ fn permission_ask_overlay_lists_kind_name_and_title() {
     app.permission_ask = Some(PermissionAskOverlay {
         request_id: agent_client_protocol::schema::v1::RequestId::Null,
         title: "bash".into(),
+        details: None,
         sel: 1,
         options: vec![
             PermissionAskOption {
@@ -2603,6 +2604,56 @@ fn permission_ask_overlay_lists_kind_name_and_title() {
         "selection on allow_once: {allow_row}"
     );
 }
+
+#[test]
+fn permission_ask_renders_full_path_and_details_inside_the_border() {
+    use crate::app::PermissionAskOverlay;
+    use crate::bus::PermissionAskOption;
+    let mut app = test_app();
+    app.show_banner = false;
+    // A path far longer than the popup width: it must wrap and every segment
+    // must still paint (the old border-title rendering clipped it).
+    let long_path = "/Users/william/Develop/tools/zcode-acp-martty/VeryLongSubdirectoryName/deeper/still-deeper/final-target";
+    app.permission_ask = Some(PermissionAskOverlay {
+        request_id: agent_client_protocol::schema::v1::RequestId::Null,
+        title: format!("Sandbox write request: {long_path}"),
+        details: Some("The sandbox denied a write outside the workspace.".into()),
+        sel: 1,
+        options: vec![
+            PermissionAskOption {
+                option_id: "reject".into(),
+                kind: "reject_once".into(),
+                name: "Reject".into(),
+            },
+            PermissionAskOption {
+                option_id: "allow".into(),
+                kind: "allow_once".into(),
+                name: "Allow once".into(),
+            },
+        ],
+        reply: None,
+    });
+    // Width 100 forces the path to wrap across several body rows.
+    let frame = dump_frame(&mut app, 100, 30);
+    assert!(
+        frame.contains("Sandbox write request:"),
+        "title shown in body\n{frame}"
+    );
+    assert!(
+        frame.contains("final-target"),
+        "path tail visible (not clipped)\n{frame}"
+    );
+    assert!(
+        frame.contains("The sandbox denied a write"),
+        "details rendered\n{frame}"
+    );
+    // The options must survive no matter how tall the title+details wrap.
+    assert!(frame.contains("Allow once"), "options still visible\n{frame}");
+    // The interaction hint stays on the border, where it cannot be confused
+    // with, or crowd out, the request text.
+    assert!(frame.contains("enter select"), "border hint\n{frame}");
+}
+
 
 #[test]
 fn plugin_slider_overlay_renders_track_marks_and_keyboard_affordances() {

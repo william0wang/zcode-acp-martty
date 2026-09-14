@@ -3708,7 +3708,9 @@ fn draw_permission_ask(f: &mut Frame, app: &App, screen: Rect) {
         return;
     };
     let theme = app.theme;
-    let h = (ask.options.len() as u16 + 2).min(screen.height.saturating_sub(2));
+    // Width still driven by the option rows; the title and details wrap
+    // inside it. The border title carries only the interaction hint — a path
+    // in the border is clipped to the frame width and unreadable.
     let needed = ask
         .options
         .iter()
@@ -3717,11 +3719,42 @@ fn draw_permission_ask(f: &mut Frame, app: &App, screen: Rect) {
         .unwrap_or(0) as u16;
     let cap = screen.width.saturating_sub(4).max(24);
     let w = (needed + 2).max(58).min(cap);
-    let x = screen.x + (screen.width - w) / 2;
-    let y = screen.y + (screen.height - h) / 3;
-    let area = Rect::new(x, y, w, h);
-    f.render_widget(Clear, area);
-    let mut lines = Vec::new();
+    let text_width = (w as usize).saturating_sub(4).max(8);
+
+    // Max body rows between the borders, leaving room for the 2 separators
+    // and every option row: a long path/details must never push the choices
+    // off-screen.
+    let max_body = (screen.height.saturating_sub(2).saturating_sub(2)) as usize;
+    let separators = if ask.details.is_some() { 2 } else { 1 };
+    let title_lines = crate::transcript::wrap(&ask.title, text_width);
+    let details_budget = max_body
+        .saturating_sub(title_lines.len() + separators + ask.options.len())
+        .max(1);
+
+    let mut lines: Vec<Line> = Vec::new();
+    for line in title_lines {
+        lines.push(Line::from(Span::styled(
+            line,
+            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
+        )));
+    }
+    if let Some(details) = ask.details.as_deref() {
+        lines.push(Line::default());
+        let mut wrapped = crate::transcript::wrap(details, text_width);
+        if wrapped.len() > details_budget {
+            wrapped.truncate(details_budget);
+            if let Some(last) = wrapped.last_mut() {
+                last.push('…');
+            }
+        }
+        for line in wrapped {
+            lines.push(Line::from(Span::styled(
+                line,
+                Style::default().fg(theme.fg_secondary),
+            )));
+        }
+    }
+    lines.push(Line::default());
     for (i, opt) in ask.options.iter().enumerate() {
         let selected = i == ask.sel;
         let marker = if selected { "▸ " } else { "  " };
@@ -3741,14 +3774,31 @@ fn draw_permission_ask(f: &mut Frame, app: &App, screen: Rect) {
             Span::styled(opt.kind.clone(), Style::default().fg(theme.caption)),
         ]));
     }
-    let title = format!(" approval · {} · enter select · esc cancel ", ask.title);
+
+    let h = (lines.len() as u16 + 2).min(screen.height.saturating_sub(2));
+    let x = screen.x + (screen.width - w) / 2;
+    let y = screen.y + (screen.height - h) / 3;
+    let area = Rect::new(x, y, w, h);
+    f.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.warn))
-        .title(Span::styled(title, Style::default().fg(theme.caption)))
+        .title(Span::styled(
+            " approval · enter select · esc cancel ",
+            Style::default().fg(theme.caption),
+        ))
         .style(Style::default().bg(theme.panel));
-    f.render_widget(Paragraph::new(lines).block(block), area);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    // 1-cell horizontal inset so the wrapped text doesn't touch the border.
+    let body = Rect::new(
+        inner.x.saturating_add(1),
+        inner.y,
+        inner.width.saturating_sub(2),
+        inner.height,
+    );
+    f.render_widget(Paragraph::new(lines), body);
 }
 
 fn draw_elicitation_form(f: &mut Frame, app: &mut App, screen: Rect) {

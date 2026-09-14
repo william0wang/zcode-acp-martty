@@ -29,7 +29,7 @@ use agent_client_protocol::schema::v1::{
     SelectedPermissionOutcome, SessionConfigOptionValue, SessionConfigOptionsCapabilities,
     SessionId, SessionNotification, SetSessionConfigOptionRequest, SetSessionModeRequest,
     TerminalOutputRequest,
-    TerminalOutputResponse, WaitForTerminalExitRequest, WaitForTerminalExitResponse,
+    TerminalOutputResponse, ToolCallContent, WaitForTerminalExitRequest, WaitForTerminalExitResponse,
     WriteTextFileRequest, WriteTextFileResponse,
 };
 use agent_client_protocol::schema::ProtocolVersion;
@@ -1159,6 +1159,30 @@ fn prompt_content_blocks(
     Ok(out)
 }
 
+/// Concatenate the text blocks of a tool-call content collection. It carries
+/// the agent's explanation of a permission ask (the bridge puts the denied
+/// path and the stakes there); non-text blocks (images, diffs, terminals) are
+/// skipped. `None` when there is no prose, so the popup can collapse the
+/// section. The ACP enums are `#[non_exhaustive]`, hence the `_` arms.
+fn tool_call_content_text(blocks: &[ToolCallContent]) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    for block in blocks {
+        if let ToolCallContent::Content(content) = block {
+            if let ContentBlock::Text(text) = &content.content {
+                let trimmed = text.text.trim();
+                if !trimmed.is_empty() {
+                    parts.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
+
 /// Node extra stdio (`pipe`) is a socketpair, not a FIFO. `tokio::fs::File`
 /// on that fd treats `EAGAIN` as a hard error (os error 35).
 #[cfg(unix)]
@@ -1548,6 +1572,16 @@ where
                     .title
                     .clone()
                     .unwrap_or_else(|| "tool".into());
+                // The agent explains the ask in the tool-call content (the
+                // bridge names the denied path and the stakes there). Carry it
+                // to the popup, which renders it under the title — a long path
+                // in the border title alone is clipped and unreadable.
+                let details = req
+                    .tool_call
+                    .fields
+                    .content
+                    .as_deref()
+                    .and_then(tool_call_content_text);
                 let _ = bus_p.send(AppEvent::Rpc {
                     method: "session.event".into(),
                     params: json!({
@@ -1587,6 +1621,7 @@ where
                         session_id: req.session_id.to_string(),
                         request_id: request_id.clone(),
                         title,
+                        details,
                         options,
                         reply: tx,
                     })
