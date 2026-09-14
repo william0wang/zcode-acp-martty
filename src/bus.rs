@@ -1,5 +1,6 @@
 //! Unified event bus for the single-threaded UI loop.
 
+use agent_client_protocol::schema::v1::RequestId;
 use serde_json::Value;
 
 /// Everything the app loop can receive.
@@ -22,8 +23,12 @@ pub enum AppEvent {
     /// on the oneshot. The ACP task waits; the UI thread does not.
     /// `session_id` names the owning session so the ask can follow its tab
     /// instead of floating over whatever session is on screen.
+    /// `request_id` is the JSON-RPC id of the incoming request — the key the
+    /// ACP task's cancellation watcher uses to dismiss a stale overlay (the
+    /// agent cancelled the request while another client answered it).
     PermissionAsk {
         session_id: String,
+        request_id: RequestId,
         title: String,
         options: Vec<PermissionAskOption>,
         reply: tokio::sync::oneshot::Sender<PermissionAskReply>,
@@ -34,15 +39,29 @@ pub enum AppEvent {
     /// carry `None` and surface on the live view.
     ElicitationAsk {
         session_id: Option<String>,
+        request_id: RequestId,
         form: crate::elicitation::ElicitationForm,
         reply: tokio::sync::oneshot::Sender<crate::elicitation::ElicitationReply>,
     },
+    /// The agent cancelled a pending permission/elicitation request
+    /// (`$/cancel_request` routed through the ACP layer's cancellation
+    /// watcher). The UI must drop the matching overlay — the request was
+    /// answered elsewhere; leaving it painted would invite a dead reply.
+    AskCancelled { request_id: RequestId },
     /// Output of a local `!` shell command.
     ShellDone {
         id: u64,
         code: Option<i32>,
         output: String,
     },
+}
+
+impl AppEvent {
+    /// Synthetic request id for martty-local policy asks (the acp_fs write /
+    /// terminal-spawn gates). They are not ACP requests, so no peer
+    /// cancellation can ever carry this id; 0 stays clear of real bridge
+    /// counters, which start at 1.
+    pub const LOCAL_ASK_ID: RequestId = RequestId::Number(0);
 }
 
 /// One option from ACP `session/request_permission`.

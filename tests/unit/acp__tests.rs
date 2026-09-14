@@ -1423,6 +1423,7 @@ async fn elicitation_create_waits_for_the_tui_form_reply() {
         match bus_rx.recv_timeout(Duration::from_millis(20)) {
             Ok(AppEvent::ElicitationAsk {
                 session_id,
+                request_id: _,
                 form,
                 reply,
             }) => {

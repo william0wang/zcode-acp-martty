@@ -107,6 +107,9 @@ pub async fn confirm_write_outside(
     if bus
         .send(AppEvent::PermissionAsk {
             session_id: session_id.into(),
+            // Local policy asks are not ACP requests — no peer can cancel
+            // them, so a synthetic (never matched) id is enough.
+            request_id: crate::bus::AppEvent::LOCAL_ASK_ID.clone(),
             title: format!("write {} · outside workspace", path.display()),
             options,
             reply: tx,
@@ -158,6 +161,7 @@ pub async fn confirm_terminal_spawn(
     if bus
         .send(AppEvent::PermissionAsk {
             session_id: session_id.into(),
+            request_id: crate::bus::AppEvent::LOCAL_ASK_ID.clone(),
             title: format!("run {} · in {}", shown, cwd.display()),
             options,
             reply: tx,

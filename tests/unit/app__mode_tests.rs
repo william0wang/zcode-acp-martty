@@ -4736,6 +4736,7 @@ fn acp_permission_ask_enter_selects_option_id() {
     app.handle(
         AppEvent::PermissionAsk {
             session_id: "dsh-test".into(),
+            request_id: RequestId::Number(1),
             title: "bash".into(),
             options: ask_options(),
             reply: tx,
@@ -4761,6 +4762,7 @@ fn acp_permission_ask_esc_cancels() {
     app.handle(
         AppEvent::PermissionAsk {
             session_id: "dsh-test".into(),
+            request_id: RequestId::Number(2),
             title: "bash".into(),
             options: ask_options(),
             reply: tx,
@@ -4788,6 +4790,7 @@ fn acp_elicitation_form_opens_and_returns_the_selected_value() {
     app.handle(
         AppEvent::ElicitationAsk {
             session_id: Some("dsh-test".into()),
+            request_id: RequestId::Number(3),
             form: ElicitationForm {
                 message: "The agent needs your input.".into(),
                 fields: vec![ElicitationField {

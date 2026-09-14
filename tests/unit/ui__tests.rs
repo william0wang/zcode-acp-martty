@@ -1314,6 +1314,7 @@ fn elicitation_wait_uses_the_state_line_without_claiming_the_agent_is_working() 
     let mut app = test_app();
     app.state = RunState::Running;
     app.elicitation_ask = Some(ElicitationAskOverlay {
+        request_id: agent_client_protocol::schema::v1::RequestId::Null,
         form: ElicitationFormState::new(ElicitationForm {
             message: "The agent needs your input.".into(),
             fields: Vec::new(),
@@ -1438,6 +1439,7 @@ fn caret_cell_follows_wrapped_rows_and_hides_with_the_caret() {
     app.show_banner = false;
     app.input.set("draft".into());
     app.elicitation_ask = Some(crate::app::ElicitationAskOverlay {
+        request_id: agent_client_protocol::schema::v1::RequestId::Null,
         form: crate::elicitation::ElicitationFormState::new(crate::elicitation::ElicitationForm {
             message: "m".into(),
             fields: vec![crate::elicitation::ElicitationField {
@@ -2569,6 +2571,7 @@ fn permission_ask_overlay_lists_kind_name_and_title() {
     let mut app = test_app();
     app.show_banner = false;
     app.permission_ask = Some(PermissionAskOverlay {
+        request_id: agent_client_protocol::schema::v1::RequestId::Null,
         title: "bash".into(),
         sel: 1,
         options: vec![
@@ -2699,6 +2702,7 @@ fn elicitation_overlay_renders_a_real_question_form() {
     let mut app = test_app();
     app.show_banner = false;
     app.elicitation_ask = Some(ElicitationAskOverlay {
+        request_id: agent_client_protocol::schema::v1::RequestId::Null,
         form: ElicitationFormState::new(ElicitationForm {
             message: "The agent needs your input.".into(),
             fields: vec![ElicitationField {
@@ -2767,6 +2771,7 @@ fn elicitation_text_field_owns_the_terminal_cursor_instead_of_the_composer() {
     });
     form.fields[0].input.insert_str("overlay answer");
     app.elicitation_ask = Some(ElicitationAskOverlay {
+        request_id: agent_client_protocol::schema::v1::RequestId::Null,
         form,
         scroll: 0,
         reply: None,
