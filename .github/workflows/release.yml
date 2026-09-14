@@ -1,0 +1,231 @@
+# Release automation: release-please turns Conventional Commits on main into
+# a release PR (version bump across npm/package.json, npm/package-lock.json,
+# Cargo.toml marker and Cargo.lock + CHANGELOG at npm/CHANGELOG.md). Merging
+# that PR tags the release, creates the GitHub Release and publishes the npm
+# package via trusted publishing (OIDC — no NPM_TOKEN secret).
+#
+# One-time manual step: add this repo + package-npm.yml as the trusted
+# publisher workflow on npmjs.com for the zcode-acp-martty package (the
+# npmjs.com trusted-publisher form pins the workflow FILENAME, not the
+# workflow that actually publishes — the OIDC token only needs to originate
+# from the configured repository).
+#
+# NOTE: the release tag is pushed with GITHUB_TOKEN, which by design does not
+# trigger package-npm.yml's `tags` push trigger — that path stays reserved for
+# manual/bootstrapping tags; automated releases publish from this workflow.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-24.04
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  test:
+    name: Test ${{ matrix.name }}
+    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-please]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: unix
+            runner: ubuntu-24.04
+          - name: windows
+            runner: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: npm/package-lock.json
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "10.2.0"
+      - run: rustup update stable
+      - run: rustup default stable
+      - name: Verify release tag matches package versions
+        run: node scripts/check-release-tag.mjs "${{ needs.release-please.outputs.tag_name }}" npm/package.json Cargo.toml
+      - name: Run Rust tests
+        if: runner.os != 'Windows'
+        run: cargo test --locked
+      - name: Check Rust tests on Windows
+        if: runner.os == 'Windows'
+        run: cargo check --locked --tests
+      - name: Install Node test dependencies
+        run: npm ci --prefix npm --ignore-scripts --no-audit --no-fund
+      - name: Run Node tests
+        if: runner.os != 'Windows'
+        run: npm test --prefix npm
+
+  native:
+    name: Build ${{ matrix.name }}
+    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-please]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: darwin-arm64
+            runner: macos-15
+            rust-target: aarch64-apple-darwin
+            platform: darwin
+            arch: arm64
+            binary: target/aarch64-apple-darwin/release/martty
+          - name: darwin-x64
+            runner: macos-15-intel
+            rust-target: x86_64-apple-darwin
+            platform: darwin
+            arch: x64
+            binary: target/x86_64-apple-darwin/release/martty
+          - name: linux-x64
+            runner: ubuntu-24.04
+            rust-target: x86_64-unknown-linux-musl
+            platform: linux
+            arch: x64
+            smoke-platform: linux/amd64
+            binary: target/x86_64-unknown-linux-musl/release/martty
+          - name: linux-arm64
+            runner: ubuntu-24.04
+            rust-target: aarch64-unknown-linux-musl
+            platform: linux
+            arch: arm64
+            smoke-platform: linux/arm64
+            binary: target/aarch64-unknown-linux-musl/release/martty
+          - name: win32-x64
+            runner: windows-2025
+            rust-target: x86_64-pc-windows-msvc
+            platform: win32
+            arch: x64
+            binary: target/x86_64-pc-windows-msvc/release/martty.exe
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: rustup update stable
+      - run: rustup default stable
+      - name: Install musl linker
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
+      - run: rustup target add ${{ matrix.rust-target }}
+      - name: Build
+        # The aarch64 musl target links fully self-contained from the rust
+        # sysroot (bundled crt objects + musl libc.a), and the only cc
+        # dependency (iana-time-zone-haiku) is Haiku-only, so no external
+        # C toolchain is needed: point the arm64 link at the toolchain's
+        # bundled rust-lld. Other matrix entries build their own targets.
+        # shell: bash keeps the POSIX script valid on the Windows runner.
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "linux" ] && [ "${{ matrix.arch }}" = "arm64" ]; then
+            HOST="$(rustc -vV | sed -n 's/^host: //p')"
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="$(rustc --print sysroot)/lib/rustlib/$HOST/bin/rust-lld"
+          fi
+          cargo build --release --locked --target "${{ matrix.rust-target }}"
+      - name: Verify Linux binary is statically linked
+        if: matrix.platform == 'linux'
+        run: node scripts/check-static-elf.mjs "${{ matrix.binary }}"
+      - uses: docker/setup-qemu-action@v3
+        # GitHub-hosted runners have no arm64 binfmt by default; QEMU
+        # emulation is required to run the linux/arm64 smoke container.
+        if: matrix.platform == 'linux' && matrix.arch == 'arm64'
+      - name: Smoke test Linux binary on Ubuntu 20.04
+        if: matrix.platform == 'linux'
+        env:
+          DSH_TUI_SMOKE_PLATFORM: ${{ matrix.smoke-platform }}
+        run: node scripts/smoke-old-linux.mjs "${{ matrix.binary }}"
+      - name: Stage native binary
+        run: >-
+          node scripts/package-native.mjs stage
+          --source "${{ matrix.binary }}"
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --vendor-root staged
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-native-${{ matrix.name }}
+          path: staged
+          if-no-files-found: error
+
+  package:
+    name: Assemble npm package
+    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-please, test, native]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-native-*
+          path: npm/vendor
+          merge-multiple: true
+      - name: Restore executable permissions
+        run: chmod +x npm/vendor/darwin-arm64/martty npm/vendor/darwin-x64/martty npm/vendor/linux-x64/martty npm/vendor/linux-arm64/martty
+      - run: node scripts/package-native.mjs verify --vendor-root npm/vendor
+      - name: Pack npm packages
+        run: |
+          mkdir -p dist
+          node scripts/package-alias.mjs npm npm-martty zcode-acp-martty
+          npm pack ./npm-martty --pack-destination dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-npm-packages
+          path: dist/*.tgz
+          if-no-files-found: error
+
+  publish:
+    name: Publish npm
+    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-please, package]
+    runs-on: ubuntu-24.04
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@^11.15.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-npm-packages
+          path: dist
+      - name: Publish npm packages
+        shell: bash
+        # release-please only proposes stable versions here — always latest.
+        run: npm publish ./dist/zcode-acp-martty-*.tgz --access public --tag latest --provenance
+      - name: Attach packages to the GitHub release
+        shell: bash
+        run: gh release upload "$TAG_NAME" ./dist/*.tgz --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
