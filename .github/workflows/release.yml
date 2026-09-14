@@ -19,6 +19,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing release tag to build+publish manually (bootstrap/recovery; leave empty on normal runs)
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -29,8 +34,8 @@ jobs:
   release-please:
     runs-on: ubuntu-24.04
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      npm--tag_name: ${{ steps.release.outputs['npm--tag_name'] }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -40,7 +45,9 @@ jobs:
 
   test:
     name: Test ${{ matrix.name }}
-    if: needs.release-please.outputs.release_created == 'true'
+    # Manifest-mode outputs are prefixed with the component path (npm--tag_name);
+    # the bare release_created key is only set for root-path (".") components.
+    if: needs.release-please.outputs.releases_created == 'true' || inputs.tag_name != ''
     needs: [release-please]
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -64,7 +71,9 @@ jobs:
       - run: rustup update stable
       - run: rustup default stable
       - name: Verify release tag matches package versions
-        run: node scripts/check-release-tag.mjs "${{ needs.release-please.outputs.tag_name }}" npm/package.json Cargo.toml
+        run: node scripts/check-release-tag.mjs "$TAG_NAME" npm/package.json Cargo.toml
+        env:
+          TAG_NAME: ${{ needs.release-please.outputs['npm--tag_name'] || inputs.tag_name }}
       - name: Run Rust tests
         if: runner.os != 'Windows'
         run: cargo test --locked
@@ -79,7 +88,7 @@ jobs:
 
   native:
     name: Build ${{ matrix.name }}
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.releases_created == 'true' || inputs.tag_name != ''
     needs: [release-please]
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -171,7 +180,7 @@ jobs:
 
   package:
     name: Assemble npm package
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.releases_created == 'true' || inputs.tag_name != ''
     needs: [release-please, test, native]
     runs-on: ubuntu-24.04
     steps:
@@ -201,7 +210,7 @@ jobs:
 
   publish:
     name: Publish npm
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.releases_created == 'true' || inputs.tag_name != ''
     needs: [release-please, package]
     runs-on: ubuntu-24.04
     environment: npm
@@ -229,4 +238,4 @@ jobs:
         run: gh release upload "$TAG_NAME" ./dist/*.tgz --clobber
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+          TAG_NAME: ${{ needs.release-please.outputs['npm--tag_name'] || inputs.tag_name }}
