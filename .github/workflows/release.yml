@@ -237,7 +237,9 @@ jobs:
         run: npm publish ./dist/zcode-acp-martty-*.tgz --access public --tag latest --provenance
       - name: Attach packages to the GitHub release
         shell: bash
+        # No checkout in this job — GH_REPO gives gh its repo context.
         run: gh release upload "$TAG_NAME" ./dist/*.tgz --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ needs.release-please.outputs['npm--tag_name'] || inputs.tag_name }}
