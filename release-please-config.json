@@ -5,6 +5,10 @@
   "packages": {
     "npm": {
       "package-name": "zcode-acp-martty",
+      "versioning": "prerelease",
+      "prerelease": true,
+      "prerelease-type": "zcode",
+      "bump-patch-for-minor-pre-major": true,
       "extra-files": [
         {
           "type": "generic",

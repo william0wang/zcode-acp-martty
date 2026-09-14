@@ -13,6 +13,10 @@
 > [`zcode-acp-martty`](https://www.npmjs.com/package/zcode-acp-martty) 发布，仅包含针对该桥的适配补丁
 > （agent 取消请求时自动关闭待答弹窗；状态栏显示模型显示名而非内部编码）。上游合并策略：定期同步。
 > 上游文档与 issue 仍见原仓库。
+>
+> **版本方案**：fork 版本号 = `上游基线-zcode.N`（如 `0.2.39-zcode.1`），基线始终对齐
+> 所跟踪的上游 release：fork 自身补丁只递增 `N`（release-please `versioning: prerelease`）；
+> 同步上游 `vX.Y.Z` 时在同步提交里加 `Release-As: X.Y.Z-zcode.1` 顶回基线并重置计数。
 
 <p align="center">
   <a href="README.md">中文</a> · <a href="README.en.md">English</a>

@@ -15,6 +15,11 @@
 > bridge-adaptation patches: pending permission/elicitation overlays are dismissed
 > when the agent cancels the request (`$/cancel_request`), and the status bar shows
 > the model's display name instead of its encoded option value.
+>
+> **Version scheme:** fork versions are prereleases of the tracked upstream
+> base: `<upstream-base>-zcode.N` (e.g. `0.2.39-zcode.1`). Fork-only patches
+> increment `N`; syncing upstream `vX.Y.Z` retargets the base via a
+> `Release-As: X.Y.Z-zcode.1` commit trailer.
 
 ---
 
