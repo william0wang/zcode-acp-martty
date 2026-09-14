@@ -176,21 +176,21 @@ jobs:
       - name: Pack npm packages
         run: |
           mkdir -p dist
-          node scripts/package-alias.mjs npm npm-martty martty
+          node scripts/package-alias.mjs npm npm-martty zcode-acp-martty
           npm pack ./npm-martty --pack-destination dist
       - uses: actions/upload-artifact@v7
         with:
-          name: martty-npm-packages
+          name: npm-packages
           path: dist/*.tgz
           if-no-files-found: error
           retention-days: 14
 
   publish:
     name: Publish npm
-    # Only the canonical repo may publish: the fork shares the same npm
-    # package name, and a v* tag pushed there would otherwise ship the
-    # fork's build as @latest on npm.
-    if: startsWith(github.ref, 'refs/tags/') && github.repository == 'openma-ai/Martty'
+    # Only this fork's canonical repository may publish; a v* tag pushed to
+    # any other copy of the repo must never ship to the zcode-acp-martty
+    # npm name.
+    if: startsWith(github.ref, 'refs/tags/') && github.repository == 'william0wang/zcode-acp-martty'
     needs: package
     runs-on: ubuntu-24.04
     environment: npm
@@ -206,7 +206,7 @@ jobs:
       - run: npm install --global npm@^11.15.0
       - uses: actions/download-artifact@v8
         with:
-          name: martty-npm-packages
+          name: npm-packages
           path: dist
       - name: Publish npm packages
         shell: bash
@@ -216,11 +216,11 @@ jobs:
             *) DIST_TAG=latest ;;
           esac
           echo "publishing with dist-tag: $DIST_TAG"
-          npm publish ./dist/martty-[0-9]*.tgz --access public --tag "$DIST_TAG" --provenance
+          npm publish ./dist/zcode-acp-martty-*.tgz --access public --tag "$DIST_TAG" --provenance
 
   release:
     name: Create GitHub release
-    if: startsWith(github.ref, 'refs/tags/') && github.repository == 'openma-ai/Martty'
+    if: startsWith(github.ref, 'refs/tags/') && github.repository == 'william0wang/zcode-acp-martty'
     needs: publish
     runs-on: ubuntu-24.04
     permissions:
@@ -229,7 +229,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
         with:
-          name: martty-npm-packages
+          name: npm-packages
           path: dist
       - name: Create GitHub release
         shell: bash

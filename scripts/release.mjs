@@ -111,7 +111,7 @@ try {
     if (aliasVersion !== version) {
       process.stdout.write(
         `warning: local npm-martty/package.json is at ${aliasVersion} — regenerate the alias`
-          + ` (rm -rf npm-martty && node scripts/package-alias.mjs npm npm-martty martty) before publishing it\n`,
+          + ` (rm -rf npm-martty && node scripts/package-alias.mjs npm npm-martty zcode-acp-martty) before publishing it\n`,
       )
     }
   }

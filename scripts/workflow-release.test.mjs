@@ -11,9 +11,10 @@ const workflow = readFileSync(
 test('release jobs are gated to the current canonical repository', () => {
   assert.doesNotMatch(workflow, /github\.repository == 'openma-ai\/deepseek-harness-tui'/)
   assert.equal(
-    workflow.match(/github\.repository == 'openma-ai\/Martty'/g)?.length,
+    workflow.match(/github\.repository == 'william0wang\/zcode-acp-martty'/g)?.length,
     2,
   )
+  assert.doesNotMatch(workflow, /github\.repository == 'openma-ai\/Martty'/)
 })
 
 test('release workflow packages and publishes only martty', () => {
@@ -25,9 +26,9 @@ test('release workflow packages and publishes only martty', () => {
     workflow,
     /npm ci --prefix npm --ignore-scripts --no-audit --no-fund/,
   )
-  assert.match(workflow, /package-alias\.mjs npm npm-martty martty/)
+  assert.match(workflow, /package-alias\.mjs npm npm-martty zcode-acp-martty/)
   assert.match(workflow, /npm pack \.\/npm-martty --pack-destination dist/)
-  assert.match(workflow, /npm publish \.\/dist\/martty-\[0-9\]\*\.tgz/)
+  assert.match(workflow, /npm publish \.\/dist\/zcode-acp-martty-\*\.tgz/)
   assert.doesNotMatch(workflow, /npm pack \.\/npm --pack-destination dist/)
   assert.doesNotMatch(workflow, /npm publish \.\/dist\/openma-deepseek-harness-tui/)
 })
