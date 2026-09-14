@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.39-zcode.3](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.2...v0.2.39-zcode.3) (2026-09-14)
+
+
+### Bug Fixes
+
+* keep Cargo.lock in step so tagged builds pass --locked ([d88f081](https://github.com/william0wang/zcode-acp-martty/commit/d88f0811069aa2450a57def78a15f7562b4c05a0))
+
 ## [0.2.39-zcode.2](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.1...v0.2.39-zcode.2) (2026-09-14)
 
 
