@@ -18,8 +18,11 @@
 >
 > **Version scheme:** fork versions are prereleases of the tracked upstream
 > base: `<upstream-base>-zcode.N` (e.g. `0.2.39-zcode.1`). Fork-only patches
-> increment `N`; syncing upstream `vX.Y.Z` retargets the base via a
-> `Release-As: X.Y.Z-zcode.1` commit trailer.
+> increment `N`. Releases are cut with an empty commit
+> (`git commit --allow-empty -m "fix: <batch summary>"` — empty commits are
+> attributed to all components regardless of touched paths); syncing upstream
+> `vX.Y.Z` retargets the base via a `Release-As: X.Y.Z-zcode.1` trailer on the
+> same empty commit.
 
 ---
 

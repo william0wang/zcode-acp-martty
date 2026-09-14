@@ -221,7 +221,8 @@ jobs:
           path: dist
       - name: Publish npm packages
         shell: bash
-        # release-please only proposes stable versions here — always latest.
+        # --tag latest keeps the fork channel on latest even for -zcode.N
+        # prerelease versions.
         run: npm publish ./dist/zcode-acp-martty-*.tgz --access public --tag latest --provenance
       - name: Attach packages to the GitHub release
         shell: bash

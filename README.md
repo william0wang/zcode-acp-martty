@@ -15,8 +15,10 @@
 > 上游文档与 issue 仍见原仓库。
 >
 > **版本方案**：fork 版本号 = `上游基线-zcode.N`（如 `0.2.39-zcode.1`），基线始终对齐
-> 所跟踪的上游 release：fork 自身补丁只递增 `N`（release-please `versioning: prerelease`）；
-> 同步上游 `vX.Y.Z` 时在同步提交里加 `Release-As: X.Y.Z-zcode.1` 顶回基线并重置计数。
+> 所跟踪的上游 release：fork 自身补丁只递增 `N`（release-please `versioning: prerelease`）。
+> 发版用空提交触发：`git commit --allow-empty -m "fix: <本批变更摘要>"`（空提交会被
+> release-please 分派给所有组件，绕过按路径归因；摘要同时充当 CHANGELOG 条目）。
+> 同步上游 `vX.Y.Z` 时在同一空提交上加 `Release-As: X.Y.Z-zcode.1` 顶回基线并重置计数。
 
 <p align="center">
   <a href="README.md">中文</a> · <a href="README.en.md">English</a>
