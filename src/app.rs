@@ -3535,6 +3535,49 @@ impl App {
                     self.needs_redraw = true;
                     return;
                 }
+                if method == crate::zcode_ext::SESSION_CLOSED {
+                    // Remote session close retired this conversation on the
+                    // bridge. Only an INCUBATED window acts: its whole reason
+                    // to exist is the bridge's sessions. A locally launched
+                    // window (editor-origin, no serve marker) is the user's
+                    // own surface — a remote retire must never close it
+                    // (ADR-0006: a touched session reappears). For an
+                    // incubated window the live session's retirement quits
+                    // when it was the last tab and otherwise takes the same
+                    // tab-teardown path as /close; a background tab loses
+                    // its tab. Older bridges never send this.
+                    let incubated = std::env::var("ZCODE_ACP_REMOTE_ORIGIN")
+                        .map(|v| v.trim() == "serve")
+                        .unwrap_or(false);
+                    if incubated {
+                        if let Some(id) =
+                            params.get("sessionId").and_then(serde_json::Value::as_str)
+                        {
+                            if id == self.session_id {
+                                if self.session_tab_count() < 2 {
+                                    self.quit = true;
+                                } else {
+                                    self.close_session_flow(ctl);
+                                }
+                            } else if let Some(pidx) =
+                                self.parked.iter().position(|slot| slot.id == id)
+                            {
+                                self.parked.remove(pidx);
+                                // The live tab splices in at `current`:
+                                // removing a parked slot left of it shifts
+                                // the splice point.
+                                if pidx < self.current {
+                                    self.current -= 1;
+                                }
+                                ctl.send(Cmd::ForgetSession {
+                                    session_id: id.to_string(),
+                                });
+                                self.needs_redraw = true;
+                            }
+                        }
+                    }
+                    return;
+                }
                 if method == crate::cordis::AGENTS_NAVIGATE {
                     let protocol = params.get("protocol").and_then(serde_json::Value::as_u64);
                     let action = params.get("action").and_then(serde_json::Value::as_str);
