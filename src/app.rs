@@ -3578,6 +3578,22 @@ impl App {
                     }
                     return;
                 }
+                if method == crate::zcode_ext::ASK_SETTLED {
+                    // An interaction ask was decided on ANOTHER client (or the
+                    // bridge's wait broke): this client's still-open copy of
+                    // the dialog must go. Dropping the overlay routes a
+                    // Cancelled reply through its Drop impl, which also
+                    // settles our responder. Session-keyed — the bridge
+                    // serializes asks per session, so the pending one IS the
+                    // settled one. Older bridges never send this.
+                    if let Some(session) =
+                        params.get("sessionId").and_then(serde_json::Value::as_str)
+                    {
+                        self.dismiss_ask_for_session(session);
+                    }
+                    self.needs_redraw = true;
+                    return;
+                }
                 if method == crate::cordis::AGENTS_NAVIGATE {
                     let protocol = params.get("protocol").and_then(serde_json::Value::as_u64);
                     let action = params.get("action").and_then(serde_json::Value::as_str);
@@ -6806,6 +6822,37 @@ impl App {
                 .is_some_and(|ask| &ask.request_id == request_id)
             {
                 slot.elicitation_ask = None;
+                dismissed = true;
+            }
+        }
+        if dismissed {
+            self.needs_redraw = true;
+        }
+        dismissed
+    }
+
+    /// Drop the pending permission/elicitation overlays of `session` (live tab
+    /// or its parked slot) after `$/zcode/ask_settled`: the ask was answered on
+    /// another client or the bridge's wait broke. Session-keyed, mirroring
+    /// `dismiss_ask_by_request_id`.
+    fn dismiss_ask_for_session(&mut self, session: &str) -> bool {
+        let mut dismissed = false;
+        if session == self.session_id {
+            if self.permission_ask.take().is_some() {
+                dismissed = true;
+            }
+            if self.elicitation_ask.take().is_some() {
+                dismissed = true;
+            }
+        }
+        for slot in self.parked.iter_mut() {
+            if slot.id != session {
+                continue;
+            }
+            if slot.permission_ask.take().is_some() {
+                dismissed = true;
+            }
+            if slot.elicitation_ask.take().is_some() {
                 dismissed = true;
             }
         }
