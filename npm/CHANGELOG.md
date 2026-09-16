@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.39-zcode.4](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.3...v0.2.39-zcode.4) (2026-09-16)
+
+
+### Features
+
+* let incubated windows exit on remote session close ([8932280](https://github.com/william0wang/zcode-acp-martty/commit/8932280775dd11451623e4a44631f3e656033f06))
+
+
+### Bug Fixes
+
+* dismiss stale ask dialogs on $/zcode/ask_settled ([39685d5](https://github.com/william0wang/zcode-acp-martty/commit/39685d52d38c2031dcd3b73c5204ad9525c26109))
+* queue submits behind remote-driven turns by folding $/zcode/turnState ([efdf39f](https://github.com/william0wang/zcode-acp-martty/commit/efdf39f1e7e63b513584f23163d5333bd73c1e3e))
+
 ## [0.2.39-zcode.3](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.2...v0.2.39-zcode.3) (2026-09-14)
 
 
