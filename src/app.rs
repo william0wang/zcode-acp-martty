@@ -3514,6 +3514,27 @@ impl App {
                 }
             }
             AppEvent::Rpc { method, params } => {
+                if method == crate::zcode_ext::TURN_STATE {
+                    // A turn driven by ANOTHER attached client (phone, editor,
+                    // a second window). Fold it into the exact SessionStatus
+                    // path local turns take: the running bit makes new
+                    // submits queue (send_agent_text) instead of preempting
+                    // the remote turn, and the idle edge drains the queue.
+                    if let (Some(session), Some(running)) = (
+                        params.get("sessionId").and_then(serde_json::Value::as_str),
+                        params.get("running").and_then(serde_json::Value::as_bool),
+                    ) {
+                        self.handle_inner(
+                            AppEvent::Ui(crate::events::UiEvent::SessionStatus {
+                                session: session.to_string(),
+                                running,
+                            }),
+                            ctl,
+                        );
+                    }
+                    self.needs_redraw = true;
+                    return;
+                }
                 if method == crate::cordis::AGENTS_NAVIGATE {
                     let protocol = params.get("protocol").and_then(serde_json::Value::as_u64);
                     let action = params.get("action").and_then(serde_json::Value::as_str);

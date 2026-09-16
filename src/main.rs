@@ -28,6 +28,7 @@ mod slots;
 mod theme;
 mod transcript;
 mod ui;
+mod zcode_ext;
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};

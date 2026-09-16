@@ -1538,6 +1538,21 @@ where
         )
         .on_receive_notification(
             async move |msg: UntypedMessage, cx| {
+                // Zcode bridge extension notifications ($/zcode/*): forwarded
+                // to the app WITHOUT the cordis compositor mark — an unrelated
+                // protocol that merely rides the same untyped channel.
+                if matches!(
+                    msg.method(),
+                    crate::zcode_ext::TURN_STATE
+                        | crate::zcode_ext::SESSION_CLOSED
+                        | crate::zcode_ext::ASK_SETTLED
+                ) {
+                    let _ = bus_u.send(AppEvent::Rpc {
+                        method: msg.method().into(),
+                        params: msg.params().clone(),
+                    });
+                    return Ok(Handled::Yes);
+                }
                 if matches!(
                     msg.method(),
                     crate::cordis::THEME_UPDATE
