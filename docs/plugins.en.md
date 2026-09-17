@@ -30,6 +30,15 @@ step, LLM, tool, TTFT, and throughput statistics. It exposes `current()` and
 default consumer: it contributes the compact readout to
 `conversation.composer.dock`; the Rust shell no longer owns that business UI.
 
+Each segment of the stats line is configurable through the `DSH_TUI_STATS`
+environment variable: a comma-separated list of segment ids — `tokens`
+(`↑in · ↓out`), `context` (context-window gauge), `counts` (turns/steps),
+`cache` (hit rate), `time` (LLM/tool time), `speed` (TTFT/tok/s). The list
+decides both membership and order (`context,tokens` puts the gauge first);
+unset or `all` shows every segment (the default), `none`/`off`/empty hides
+them all, and unknown ids are dropped silently. Example:
+`DSH_TUI_STATS=tokens,context martty` keeps just the token and gauge segments.
+
 ## Open: `acpSessionStatus`
 
 `acpSessionStatus` folds the non-statistics facts `/status` needs from standard

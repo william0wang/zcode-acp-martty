@@ -84,6 +84,13 @@ resume usage 更新折叠当前 Session 的 token、cache、turn、step、LLM、
 是它的默认消费者，向 `conversation.composer.dock` 注入紧凑统计行；Rust 壳不再
 直接拥有这块业务 UI。动态插件也可以注入同一服务并选择自己的呈现方式。
 
+统计行的每一段可用环境变量 `DSH_TUI_STATS` 配置：取值为逗号分隔的段 id——
+`tokens`（`↑in · ↓out`）、`context`（上下文窗口用量）、`counts`（turn/step）、
+`cache`（命中率）、`time`（LLM/工具耗时）、`speed`（TTFT/tok/s）。列表同时决定
+显示与顺序（如 `context,tokens` 会把上下文排到最前）；未设置或 `all` 显示全部
+（默认），`none`/`off`/空值全部隐藏；未知 id 静默丢弃。例：
+`DSH_TUI_STATS=tokens,context martty` 只保留 token 与上下文两段。
+
 ## 当前可调用：`acpSessionStatus`
 
 `acpSessionStatus` 从标准 ACP initialize / authenticate / session /

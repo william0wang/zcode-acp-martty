@@ -86,3 +86,95 @@ test('the stats Client Plugin contributes only through the composer dock', () =>
     'Cache hit 44%',
   ])
 })
+
+test('DSH_TUI_STATS parses into an ordered segment allowlist', () => {
+  // unset keeps the default full dock (null = no filtering at all)
+  assert.equal(statsView.statsSegments({}), null)
+  assert.deepEqual(statsView.statsSegments({ DSH_TUI_STATS: '' }), [])
+  assert.deepEqual(statsView.statsSegments({ DSH_TUI_STATS: ' off ' }), [])
+  assert.deepEqual(statsView.statsSegments({ DSH_TUI_STATS: 'none' }), [])
+  assert.deepEqual(statsView.statsSegments({ DSH_TUI_STATS: 'all' }),
+    ['tokens', 'context', 'counts', 'cache', 'time', 'speed'])
+  assert.deepEqual(
+    statsView.statsSegments({ DSH_TUI_STATS: 'tokens,cache' }),
+    ['tokens', 'cache'],
+  )
+  // the listed order is the render order
+  assert.deepEqual(
+    statsView.statsSegments({ DSH_TUI_STATS: 'cache , Tokens' }),
+    ['cache', 'tokens'],
+  )
+  // unknown and duplicate ids drop out instead of failing the whole list
+  assert.deepEqual(
+    statsView.statsSegments({ DSH_TUI_STATS: 'tokens,bogus,tokens' }),
+    ['tokens'],
+  )
+})
+
+const FULL_SNAPSHOT = {
+  sessionId: 's-1',
+  usage: {
+    input: 5000, output: 300, cached: 4000, cacheRead: 4000, cacheWrite: 0, reasoning: 0,
+  },
+  context: { used: 17_000, size: 128_000 },
+  stats: {
+    turns: 2, steps: 4, llmMillis: 97_000, toolMillis: 1_100,
+    ttftTotalMillis: 2_100, ttftCount: 1,
+  },
+}
+
+test('nodesOf filters and reorders by the segment allowlist', () => {
+  assert.deepEqual(
+    statsView.nodesOf(FULL_SNAPSHOT, ['speed', 'tokens']).map((node) => node.id),
+    ['speed', 'tokens'],
+  )
+  assert.deepEqual(
+    statsView.nodesOf(FULL_SNAPSHOT, []).map((node) => node.id),
+    [],
+  )
+  // allowlisted but data-gated segments stay hidden (no usage_update → no gauge)
+  assert.deepEqual(
+    statsView.nodesOf({ ...FULL_SNAPSHOT, context: undefined }, ['context', 'tokens'])
+      .map((node) => node.id),
+    ['tokens'],
+  )
+  assert.deepEqual(
+    statsView.nodesOf(FULL_SNAPSHOT, null).map((node) => node.id),
+    ['tokens', 'context', 'counts', 'cache', 'time', 'speed'],
+  )
+})
+
+test('apply honors DSH_TUI_STATS from the environment', () => {
+  const previous = process.env.DSH_TUI_STATS
+  try {
+    process.env.DSH_TUI_STATS = 'none'
+    let nodes = []
+    statsView.apply(fakeCtx(FULL_SNAPSHOT, (next) => { nodes = next }))
+    assert.deepEqual(nodes, [])
+
+    process.env.DSH_TUI_STATS = 'context,counts'
+    statsView.apply(fakeCtx(FULL_SNAPSHOT, (next) => { nodes = next }))
+    assert.deepEqual(nodes.map((node) => node.title), ['13.3%/128K', '2 turns · 4 steps'])
+  } finally {
+    if (previous === undefined) delete process.env.DSH_TUI_STATS
+    else process.env.DSH_TUI_STATS = previous
+  }
+})
+
+function fakeCtx(snapshot, onNodes) {
+  return {
+    acpSessionStats: {
+      current: () => snapshot,
+      subscribe(listener) {
+        return () => { listener = undefined }
+      },
+    },
+    tuiSlots: {
+      inject(name, callback) { return callback() },
+      register(_options, initial) {
+        onNodes(initial)
+        return { update: onNodes, dispose() {} }
+      },
+    },
+  }
+}

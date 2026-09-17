@@ -3,19 +3,47 @@
 export const name = 'stats-view'
 export const inject = ['acpSessionStats', 'tuiSlots']
 
+/** Segment ids in natural dock order — also the `DSH_TUI_STATS` vocabulary. */
+const SEGMENT_ORDER = ['tokens', 'context', 'counts', 'cache', 'time', 'speed']
+
+/**
+ * Parse `DSH_TUI_STATS` into an ordered allowlist of segment ids. The listed
+ * order is the render order, so the variable filters AND reorders the dock.
+ * Unset keeps the default full dock (`null` = no filtering); `all` spells the
+ * default out; `none`/`off`/empty hides every segment. Unknown and duplicate
+ * ids are dropped, which also makes `tokens,bogus` degrade to `tokens`.
+ */
+export function statsSegments(env = process.env) {
+  const raw = env.DSH_TUI_STATS
+  if (raw === undefined) return null
+  const keyword = raw.trim().toLowerCase()
+  if (keyword === '' || keyword === 'none' || keyword === 'off') return []
+  if (keyword === 'all') return [...SEGMENT_ORDER]
+  const seen = new Set()
+  const wanted = []
+  for (const part of raw.split(',')) {
+    const id = part.trim().toLowerCase()
+    if (!SEGMENT_ORDER.includes(id) || seen.has(id)) continue
+    seen.add(id)
+    wanted.push(id)
+  }
+  return wanted
+}
+
 export function apply(ctx) {
+  const segments = statsSegments()
   let current = ctx.acpSessionStats.current()
   let panel
   const stopSlot = ctx.tuiSlots.inject('conversation.composer.dock', () => {
     panel = ctx.tuiSlots.register(
       { name: 'conversation.composer.dock', id: 'stats' },
-      nodesOf(current),
+      nodesOf(current, segments),
     )
     return () => panel.dispose()
   })
   const stopStats = ctx.acpSessionStats.subscribe((snapshot) => {
     current = snapshot
-    panel?.update(nodesOf(current))
+    panel?.update(nodesOf(current, segments))
   })
   return () => {
     stopStats?.()
@@ -23,7 +51,7 @@ export function apply(ctx) {
   }
 }
 
-function nodesOf(snapshot) {
+function nodesOf(snapshot, segments = null) {
   const usage = snapshot?.usage ?? {}
   const stats = snapshot?.stats ?? {}
   const nodes = []
@@ -64,7 +92,8 @@ function nodesOf(snapshot) {
     }
     nodes.push(node('speed', parts.join(' · ')))
   }
-  return nodes
+  if (segments === null) return nodes
+  return segments.flatMap((id) => nodes.find((entry) => entry.id === id) ?? [])
 }
 
 function node(id, title) {

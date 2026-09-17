@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The project follows
 
 ### Added
 
+- `DSH_TUI_STATS` configures the composer-dock stats line per segment: a
+  comma-separated list of segment ids (`tokens`, `context`, `counts`, `cache`,
+  `time`, `speed`) that decides both membership and render order; unset/`all`
+  keeps the full default line, `none`/`off` hides it, unknown ids drop out.
+
 - Show the current tab’s Harness icon before the model, using Registry assets cached locally; fall back to its name while unavailable or on terminals without image support.
 
 - A Chinese and English workflow article on trying Codex and Claude Code in one
