@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.39-zcode.5](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.4...v0.2.39-zcode.5) (2026-09-17)
+
+
+### Features
+
+* add DSH_TUI_STATS per-segment config for the composer dock stats line ([01b17ca](https://github.com/william0wang/zcode-acp-martty/commit/01b17ca66780f2d2a7b612190eeda8acf6f9e331))
+
 ## [0.2.39-zcode.4](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.3...v0.2.39-zcode.4) (2026-09-16)
 
 
