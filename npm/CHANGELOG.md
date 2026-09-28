@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.39-zcode.6](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.5...v0.2.39-zcode.6) (2026-09-28)
+
+
+### Bug Fixes
+
+* martty effort picker reads the switched model's levels ([a8eb14d](https://github.com/william0wang/zcode-acp-martty/commit/a8eb14d40506b8fe907d373e0908103ab2a93e93))
+
 ## [0.2.39-zcode.5](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.4...v0.2.39-zcode.5) (2026-09-17)
 
 
