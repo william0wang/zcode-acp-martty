@@ -1091,6 +1091,155 @@ async fn plugin_operation_defers_agent_requests_and_queued_prompts_until_complet
     assert!(observed.contains("model") && observed.contains("prompt:queued") && observed.contains("prompt:late"), "deferred requests must resume after completion: {observed:?}");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fetch_efforts_waits_for_the_in_flight_model_switch_fold() {
+    use agent_client_protocol::schema::v1::{
+        AgentCapabilities, InitializeResponse, NewSessionResponse, SessionConfigOption,
+        SessionConfigSelectOption, SetSessionConfigOptionResponse,
+    };
+    use std::time::{Duration, Instant};
+
+    // The switch's set_config_option response is HELD until both commands are
+    // in the loop: an inline FetchEfforts read the pre-switch fold and served
+    // the PREVIOUS model's effort list to the stage-2 picker.
+    let release_switch = Arc::new(tokio::sync::Notify::new());
+    let agent = Agent
+        .builder()
+        .name("efforts-ordering-fixture")
+        .on_receive_request(
+            async move |init: InitializeRequest, responder, _cx| {
+                responder.respond(
+                    InitializeResponse::new(init.protocol_version)
+                        .agent_capabilities(AgentCapabilities::new())
+                        .agent_info(Implementation::new("efforts-ordering-fixture", "0")),
+                )
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |_req: NewSessionRequest, responder, _cx| {
+                responder.respond(
+                    NewSessionResponse::new(SessionId::new("initial")).config_options(vec![
+                        SessionConfigOption::select(
+                            "effort",
+                            "Reasoning effort",
+                            "max",
+                            vec![
+                                SessionConfigSelectOption::new("off", "off"),
+                                SessionConfigSelectOption::new("max", "max"),
+                            ],
+                        ),
+                    ]),
+                )
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let release_switch = Arc::clone(&release_switch);
+                async move |request: SetSessionConfigOptionRequest, responder, cx| {
+                    let switched = request.value.as_value_id().map(ToString::to_string)
+                        == Some("next-model".to_string());
+                    let options = vec![SessionConfigOption::select(
+                        "effort",
+                        "Reasoning effort",
+                        "high",
+                        vec![
+                            SessionConfigSelectOption::new("low", "low"),
+                            SessionConfigSelectOption::new("high", "high"),
+                        ],
+                    )];
+                    if !switched {
+                        responder.respond(SetSessionConfigOptionResponse::new(vec![]))?;
+                        return Ok(());
+                    }
+                    let release_switch = Arc::clone(&release_switch);
+                    cx.spawn(async move {
+                        release_switch.notified().await;
+                        let _ = responder.respond(SetSessionConfigOptionResponse::new(options));
+                        Ok(())
+                    })?;
+                    Ok(())
+                }
+            },
+            on_receive_request!(),
+        );
+    let cfg = RuntimeConfig {
+        bin: "demo".into(),
+        cordis: "demo".into(),
+        workspace: "/tmp".into(),
+        session_root: "/tmp".into(),
+        provider: "deepseek-official".into(),
+        model: "deepseek-v4-flash".into(),
+        max_tokens: None,
+        base_url: None,
+        api_key: None,
+    };
+    let (bus_tx, bus_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+    let client = tokio::spawn(async move { connect(agent, cfg, bus_tx, cmd_rx).await });
+    // Wait for the initial fold: the session binds AND the old-model effort
+    // fact (max) has landed — the exact state the racing read used to see.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut seeded = false;
+    while Instant::now() < deadline && !seeded {
+        match bus_rx.recv_timeout(Duration::from_millis(20)) {
+            Ok(AppEvent::Ui(crate::events::UiEvent::ReasoningEffort { effort, .. }))
+                if effort == "max" =>
+            {
+                seeded = true;
+            }
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    assert!(
+        seeded,
+        "the old-model effort fold must land before the switch"
+    );
+
+    cmd_tx
+        .send(Cmd::SelectModel {
+            session_id: "initial".into(),
+            provider: None,
+            model: Some("next-model".into()),
+            effort: None,
+        })
+        .unwrap();
+    cmd_tx
+        .send(Cmd::FetchEfforts {
+            session_id: "initial".into(),
+            provider: String::new(),
+            model: "next-model".into(),
+        })
+        .unwrap();
+    // Hold long enough for the switch job to park on the agent response —
+    // an inline FetchEfforts fires inside this window with stale data.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    release_switch.notify_one();
+
+    let mut seen: Option<(Vec<String>, Option<String>)> = None;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline && seen.is_none() {
+        match bus_rx.recv_timeout(Duration::from_millis(20)) {
+            Ok(AppEvent::Ctl(CtlEvent::Efforts { efforts, default, .. })) => {
+                seen = Some((efforts, default));
+            }
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    let _ = cmd_tx.send(Cmd::Shutdown);
+    let _ = tokio::time::timeout(Duration::from_secs(2), client).await;
+    let (efforts, default) = seen.expect("an Efforts event must arrive for the picker");
+    assert_eq!(
+        efforts,
+        vec!["low".to_string(), "high".to_string()],
+        "the picker must see the switched-to model's list, not the pre-switch fold"
+    );
+    assert_eq!(default.as_deref(), Some("high"));
+}
+
 #[test]
 fn prompt_image_flag_reads_initialize_payload() {
     assert!(prompt_image_supported(&json!({

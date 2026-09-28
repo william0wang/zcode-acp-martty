@@ -2607,19 +2607,6 @@ where
                                 }
                             }
                         }
-                        Cmd::FetchEfforts { session_id, .. } => {
-                            let surface = surface.lock().unwrap_or_else(|e| e.into_inner());
-                            let efforts = surface.session(&session_id).efforts.clone();
-                            let _ = bus.send(AppEvent::Ctl(CtlEvent::Efforts {
-                                session_id: Some(session_id.clone()),
-                                efforts: if efforts.is_empty() {
-                                    vec!["off".into(), "high".into(), "max".into()]
-                                } else {
-                                    efforts.clone()
-                                },
-                                default: surface.session(&session_id).effort_current.clone().or_else(|| efforts.first().cloned()),
-                            }));
-                        }
                         Cmd::ForgetSession { session_id } => {
                             // `/close`: this client stopped viewing the
                             // session. Drop its turn state and queued

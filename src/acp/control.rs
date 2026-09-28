@@ -69,6 +69,7 @@ impl ControlWorkers {
         let lane = match &cmd {
             Cmd::NewSession { .. } | Cmd::ResumeSession { .. } => "setup".to_string(),
             Cmd::SelectModel { session_id, .. }
+            | Cmd::FetchEfforts { session_id, .. }
             | Cmd::SetPermission { session_id, .. }
             | Cmd::SetPreset { session_id, .. }
             | Cmd::SetConfigOption { session_id, .. } => format!("config:{session_id}"),
@@ -248,6 +249,32 @@ async fn run_control(
                     }
                 }
             }
+        }
+        // Runs in the same config lane as SelectModel on purpose: the picker
+        // must see the switch's folded response, not the pre-switch surface.
+        // Reading it inline in the acp loop raced the model switch and served
+        // the PREVIOUS model's effort list right after a pick.
+        Cmd::FetchEfforts { session_id, .. } => {
+            let (efforts, default) = {
+                let surface = surface.lock().unwrap_or_else(|e| e.into_inner());
+                let session = surface.session(&session_id);
+                (
+                    session.efforts.clone(),
+                    session
+                        .effort_current
+                        .clone()
+                        .or_else(|| session.efforts.first().cloned()),
+                )
+            };
+            let _ = bus.send(AppEvent::Ctl(CtlEvent::Efforts {
+                session_id: Some(session_id),
+                efforts: if efforts.is_empty() {
+                    vec!["off".into(), "high".into(), "max".into()]
+                } else {
+                    efforts
+                },
+                default,
+            }));
         }
         Cmd::FetchStaticPlugins => match fetch_static_plugins(&cx).await {
             Ok(plugins) => {
