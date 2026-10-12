@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.1-zcode.1](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.6...v0.3.1-zcode.1) (2026-10-12)
+
+
+### Features
+
+* **acp:** gate additionalDirectories on the agent capability ([#139](https://github.com/william0wang/zcode-acp-martty/issues/139)) ([f7a8289](https://github.com/william0wang/zcode-acp-martty/commit/f7a828934dc369b4daf90097fd9f576b248137b6))
+
+
+### Bug Fixes
+
+* integrate pi-acp beta compatibility and OpenMA package ([#130](https://github.com/william0wang/zcode-acp-martty/issues/130)) ([8b7938d](https://github.com/william0wang/zcode-acp-martty/commit/8b7938dcb7240024b133e814a9d5a37743b77325))
+
+
+### Miscellaneous Chores
+
+* **release:** retarget the fork series at upstream v0.3.1 ([5a31156](https://github.com/william0wang/zcode-acp-martty/commit/5a311565a0aca9e15f4a4b0af7106a3de26b9f93))
+
 ## [0.2.39-zcode.6](https://github.com/william0wang/zcode-acp-martty/compare/v0.2.39-zcode.5...v0.2.39-zcode.6) (2026-09-28)
 
 
