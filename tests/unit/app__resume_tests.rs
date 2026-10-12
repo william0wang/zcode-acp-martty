@@ -8,10 +8,11 @@ fn test_app_with_root(root: &str, workspace: &str) -> (App, Controller) {
         workspace: workspace.into(),
         session_root: root.into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (tx, _rx) = std::sync::mpsc::channel::<AppEvent>();
     let ctl = Controller::start(cfg.clone(), true, None, tx.clone());
@@ -29,7 +30,7 @@ fn write_fixture_session(root: &PathBuf, id: &str) {
             r#"{"type":"user/message","seq":2,"data":{"content":[{"text":"修复失败的测试","type":"text"}],"source":{"kind":"user"},"role":"user","id":"m1"}}"#.into(),
             r#"{"type":"session/title","seq":3,"data":{"title":"fix failing tests","source":{"kind":"provider","provider":"session-title-first-prompt-llm"}}}"#.into(),
             r#"{"type":"assistant/chunk","seq":4,"data":{"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5}}}}"#.into(),
-            r#"{"type":"assistant/message","seq":5,"data":{"message":{"content":[{"type":"text","text":"tests are green now"}],"source":{"model":"deepseek-v4-flash"}}}}"#.into(),
+            r#"{"type":"assistant/message","seq":5,"data":{"message":{"content":[{"type":"text","text":"tests are green now"}],"source":{"model":"deepseek-flash"}}}}"#.into(),
             r#"{"type":"turn/end","seq":6,"data":{"reason":"completed"}}"#.into(),
         ];
     std::fs::write(dir.join("session.jsonl"), lines.join("\n")).unwrap();
@@ -533,12 +534,14 @@ fn acp_session_list_limit_skips_the_current_session_before_truncating() {
         id: app.session_id.clone(),
         title: None,
         updated_at: None,
+        additional_directories: Vec::new(),
     }];
     for i in 1..=10 {
         sessions.push(SessionListItem {
             id: format!("dsh-sess-{i:02}"),
             title: Some(format!("session {i}")),
             updated_at: None,
+            additional_directories: Vec::new(),
         });
     }
     app.on_acp_session_list(app.session_id.clone(), sessions, None, 10, &ctl);

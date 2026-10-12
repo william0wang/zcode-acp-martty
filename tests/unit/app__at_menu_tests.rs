@@ -67,10 +67,11 @@ fn test_app(workspace: &PathBuf) -> (App, Controller, Receiver<AppEvent>) {
         workspace: workspace.to_string_lossy().into_owned(),
         session_root: fresh_root(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (tx, rx) = std::sync::mpsc::channel::<AppEvent>();
     let ctl = Controller::start(cfg.clone(), true, None, tx.clone());

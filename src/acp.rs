@@ -1,6 +1,6 @@
 //! Official ACP client (`agent-client-protocol` 2.0).
 //!
-//! Speaks initialize / authenticate / session/new / session/resume / session/load /
+//! Speaks initialize / authenticate / session/new / session/fork / session/resume / session/load /
 //! session/list / prompt / cancel / set_config_option / set_mode.
 //! Transcript paint comes from `session/update`. Negotiated Cordis TUI
 //! compositor state arrives as `_dsh/cordis/tui/*` extension notifications.
@@ -93,9 +93,15 @@ struct Surface {
     prompt_image: bool,
     /// Agent negotiated the DSH Cordis ACP extension family.
     cordis: bool,
+    /// How this agent takes a message into its active turn (Send Now).
+    steer_route: SteerRoute,
 }
 
 impl Surface {
+    fn steer_route_for(&self, id: &str) -> SteerRoute {
+        self.session(id).connection.as_ref().map(steer_route).unwrap_or(self.steer_route)
+    }
+
     fn active_connection(&self) -> Option<&Value> {
         self.active_session.as_deref().and_then(|id| self.session(id).connection.as_ref())
     }
@@ -332,6 +338,12 @@ struct SessionHandle {
     /// `session/cancel` was sent for the in-flight prompt; its finish is
     /// reported as an interruption, not a turn result.
     turn_aborted: bool,
+    /// Steers whose request has not returned yet. On the concurrent-prompt
+    /// route a steer is a second `session/prompt`; agents that cannot join
+    /// a turn (pi-acp) run it as the *next* turn, so its reply streams after
+    /// the primary prompt returned and before its own response does. The
+    /// session stays busy until every in-flight prompt has returned.
+    steers_inflight: usize,
 }
 
 /// Resolve the session a command addresses: the id the UI carried, or the
@@ -386,8 +398,122 @@ fn retarget_session(cmd: &mut Cmd, sid: &SessionId) {
 }
 
 struct SteerFinish {
+    session_id: String,
     message_id: u64,
-    result: Result<agent_client_protocol::schema::v1::PromptResponse, AcpError>,
+    /// The agent did not take the message into its active turn; the client
+    /// FIFO re-owns it and sends it as the next `session/prompt`.
+    deferred: bool,
+}
+
+/// How an agent accepts a message for its active turn (Send Now), negotiated
+/// from the `initialize` response. Every route degrades to "deferred" when the
+/// agent does not take the message: the client FIFO keeps it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum SteerRoute {
+    /// Legacy agents with no steering advertisement: a second
+    /// `session/prompt` while the first is in flight joins that turn
+    /// (e.g. `@zed-industries/claude-agent-acp` <0.24 with
+    /// `_meta.claudeCode.promptQueueing`).
+    #[default]
+    ConcurrentPrompt,
+    /// The shared ACP steering extension: `_session/steering`, advertised by
+    /// top-level `_meta.steering.supported` (claude-agent-acp, codex-acp,
+    /// deepseek-harness-acp). `{outcome:"injected"}` joins the turn,
+    /// `startedNewTurn` means the agent consumed it as a fresh turn, and
+    /// `{outcome:"promptRequired"}` means the turn already ended.
+    SessionSteering,
+    /// MiniMax Code: `mcode/session/steer`, listed in
+    /// `_meta["minimax-code/extensions"].methods`. Its `session/prompt`
+    /// rejects concurrency outright, and steering carries text only.
+    McodeSteer,
+}
+
+const SESSION_STEERING_METHOD: &str = "_session/steering";
+const MCODE_STEER_METHOD: &str = "mcode/session/steer";
+
+fn steer_route(init: &Value) -> SteerRoute {
+    let steering_supported = |meta: Option<&Value>| {
+        meta.and_then(|meta| meta.pointer("/steering/supported"))
+            .and_then(Value::as_bool)
+            == Some(true)
+    };
+    if steering_supported(init.get("_meta"))
+        || steering_supported(init.pointer("/agentCapabilities/_meta"))
+    {
+        return SteerRoute::SessionSteering;
+    }
+    // JSON pointer escapes the `/` inside the extension key as `~1`.
+    let mcode_methods = init
+        .pointer("/_meta/minimax-code~1extensions/methods")
+        .and_then(Value::as_array);
+    if mcode_methods.is_some_and(|methods| {
+        methods.iter().any(|m| m.as_str() == Some(MCODE_STEER_METHOD))
+    }) {
+        return SteerRoute::McodeSteer;
+    }
+    SteerRoute::ConcurrentPrompt
+}
+
+/// The wire form of one steer for a route.
+enum SteerRequest {
+    Prompt(Vec<ContentBlock>),
+    Ext(UntypedMessage),
+    /// The route cannot carry this payload (images on a text-only steer);
+    /// the client FIFO sends it as the next prompt instead.
+    Unsupported,
+}
+
+fn steer_request(
+    route: SteerRoute,
+    sid: &SessionId,
+    content: Vec<ContentBlock>,
+    message_id: u64,
+) -> Result<SteerRequest, AcpError> {
+    match route {
+        SteerRoute::ConcurrentPrompt => Ok(SteerRequest::Prompt(content)),
+        SteerRoute::SessionSteering => {
+            let params = json!({
+                "sessionId": sid.to_string(),
+                "prompt": serde_json::to_value(&content)?,
+                "_meta": { "steering": { "idleBehavior": "promptRequired" } },
+            });
+            Ok(SteerRequest::Ext(UntypedMessage::new(SESSION_STEERING_METHOD, params)?))
+        }
+        SteerRoute::McodeSteer => {
+            let mut text = Vec::new();
+            for block in &content {
+                match block {
+                    ContentBlock::Text(block) => text.push(block.text.as_str()),
+                    _ => return Ok(SteerRequest::Unsupported),
+                }
+            }
+            let text = text.join("\n");
+            if text.trim().is_empty() {
+                return Ok(SteerRequest::Unsupported);
+            }
+            let params = json!({
+                "sessionId": sid.to_string(),
+                "text": text,
+                "clientRequestId": format!("martty-steer-{message_id}"),
+            });
+            Ok(SteerRequest::Ext(UntypedMessage::new(MCODE_STEER_METHOD, params)?))
+        }
+    }
+}
+
+/// Whether an extension steer left the message with the client FIFO.
+fn steer_ext_deferred(route: SteerRoute, result: &Result<Value, AcpError>) -> bool {
+    match (route, result) {
+        (_, Err(_)) => true,
+        // `injected` joined the turn; `startedNewTurn` consumed the message as
+        // a new turn (only without `idleBehavior: promptRequired`). Either way
+        // the agent owns it now — re-queueing would send it twice.
+        (SteerRoute::SessionSteering, Ok(value)) => !matches!(
+            value.get("outcome").and_then(Value::as_str),
+            Some("injected" | "startedNewTurn")
+        ),
+        (SteerRoute::McodeSteer | SteerRoute::ConcurrentPrompt, Ok(_)) => false,
+    }
 }
 
 /// Backchat `AcpSession.#prompt`: abort does not wait for `session/prompt`.
@@ -437,22 +563,41 @@ fn spawn_session_prompt(
     })
 }
 
-/// A steer is another `session/prompt` sent while the active request is still
-/// in flight. It belongs to that turn, so it must not open or close a second
-/// local turn lifecycle.
-fn spawn_steer_prompt(
+/// A steer belongs to the active turn, so it must not open or close a second
+/// local turn lifecycle. On the concurrent-prompt route it is another
+/// `session/prompt` sent while the active request is still in flight (no
+/// deadline: it settles with that turn); extension routes are short control
+/// requests and keep [`REQUEST_DEADLINE`].
+fn spawn_steer(
     cx: ConnectionTo<Agent>,
+    route: SteerRoute,
     sid: SessionId,
     content: Vec<ContentBlock>,
     message_id: u64,
     done: tokio::sync::mpsc::UnboundedSender<SteerFinish>,
 ) {
+    let session_id = sid.to_string();
+    let request = match steer_request(route, &sid, content, message_id) {
+        Ok(request) => request,
+        Err(_) => {
+            let _ = done.send(SteerFinish { session_id, message_id, deferred: true });
+            return;
+        }
+    };
     tokio::spawn(async move {
-        let result = cx
-            .send_request(PromptRequest::new(sid, content))
-            .block_task()
-            .await;
-        let _ = done.send(SteerFinish { message_id, result });
+        let deferred = match request {
+            SteerRequest::Prompt(content) => cx
+                .send_request(PromptRequest::new(sid, content))
+                .block_task()
+                .await
+                .is_err(),
+            SteerRequest::Ext(request) => {
+                let result = cx.send_request(request).block_task_deadline().await;
+                steer_ext_deferred(route, &result)
+            }
+            SteerRequest::Unsupported => true,
+        };
+        let _ = done.send(SteerFinish { session_id, message_id, deferred });
     });
 }
 
@@ -856,9 +1001,15 @@ async fn create_prompt_session(
     bus: &Sender<AppEvent>,
     methods: &[AuthMethodInfo],
     selected: Option<&AuthMethodInfo>,
+    additional_directories: bool,
+    directories: &[String],
 ) -> std::result::Result<Option<SessionId>, AcpError> {
     match cx
-        .send_request(NewSessionRequest::new(cwd.to_path_buf()))
+        .send_request(new_session_request(
+            cwd,
+            additional_directories,
+            directories,
+        ))
         .block_task_setup_deadline()
         .await
     {
@@ -896,6 +1047,8 @@ fn session_connection_snapshot(value: &Value) -> crate::bus::SessionConnection {
         server: value.pointer("/agentInfo/name").and_then(Value::as_str).map(str::to_string),
         auth, load_session, list_session: list_session_supported(value) || load_session,
         resume_session: resume_session_supported(value),
+        fork_session: fork_session_supported(value),
+        additional_directories: additional_directories_supported(value),
     }
 }
 
@@ -1014,6 +1167,118 @@ fn list_session_supported(init: &Value) -> bool {
         })
         .and_then(|caps| caps.get("list"));
     matches!(list, Some(Value::Object(_)) | Some(Value::Bool(true)))
+}
+
+/// `{}` advertises `session/fork`. Omitted, null, booleans, and other
+/// non-objects do not. Harness name and version are not consulted.
+fn fork_session_supported(init: &Value) -> bool {
+    let fork = init
+        .get("agentCapabilities")
+        .or_else(|| init.get("agent_capabilities"))
+        .and_then(|caps| {
+            caps.get("sessionCapabilities")
+                .or_else(|| caps.get("session_capabilities"))
+        })
+        .and_then(|caps| caps.get("fork"));
+    matches!(fork, Some(Value::Object(_)))
+}
+
+/// Params aligned with [`load_session_request`]: `sessionId`, `cwd`, and
+/// `mcpServers`. The SDK omits an empty `mcpServers` on `session/fork`;
+/// `session/load` always sends the array, so the empty list is put back.
+/// No message id and no `_meta`.
+fn fork_session_params(
+    session_id: SessionId,
+    cwd: &std::path::Path,
+    additional_directories: bool,
+    directories: &[String],
+) -> Value {
+    let mut request = agent_client_protocol::schema::v1::ForkSessionRequest::new(
+        session_id,
+        cwd.to_path_buf(),
+    );
+    let extra = directory_paths(additional_directories, directories);
+    if !extra.is_empty() {
+        request = request.additional_directories(extra);
+    }
+    let mut params = serde_json::to_value(&request).unwrap_or(Value::Null);
+    if let Some(object) = params.as_object_mut() {
+        object.remove("_meta");
+        object.remove("messageId");
+        object.remove("message_id");
+        if !object.contains_key("mcpServers") {
+            object.insert("mcpServers".to_string(), Value::Array(Vec::new()));
+        }
+    }
+    params
+}
+
+/// `{}` advertises the standard capability. Omitted, null, and non-objects do not.
+fn additional_directories_supported(init: &Value) -> bool {
+    let advertised = init
+        .get("agentCapabilities")
+        .or_else(|| init.get("agent_capabilities"))
+        .and_then(|caps| {
+            caps.get("sessionCapabilities")
+                .or_else(|| caps.get("session_capabilities"))
+        })
+        .and_then(|caps| {
+            caps.get("additionalDirectories")
+                .or_else(|| caps.get("additional_directories"))
+        });
+    matches!(advertised, Some(Value::Object(_)))
+}
+
+/// Paths to send, or empty when the field must be omitted.
+///
+/// An empty list is not serialized: omission means no additional roots.
+/// `[]` is not sent to "clear" a previous list.
+fn directory_paths(enabled: bool, directories: &[String]) -> Vec<std::path::PathBuf> {
+    if !enabled {
+        return Vec::new();
+    }
+    directories.iter().map(std::path::PathBuf::from).collect()
+}
+
+fn new_session_request(
+    cwd: &std::path::Path,
+    additional_directories: bool,
+    directories: &[String],
+) -> NewSessionRequest {
+    let mut request = NewSessionRequest::new(cwd.to_path_buf());
+    let extra = directory_paths(additional_directories, directories);
+    if !extra.is_empty() {
+        request = request.additional_directories(extra);
+    }
+    request
+}
+
+fn load_session_request(
+    session_id: SessionId,
+    cwd: &std::path::Path,
+    additional_directories: bool,
+    directories: &[String],
+) -> LoadSessionRequest {
+    let mut request = LoadSessionRequest::new(session_id, cwd.to_path_buf());
+    let extra = directory_paths(additional_directories, directories);
+    if !extra.is_empty() {
+        request = request.additional_directories(extra);
+    }
+    request
+}
+
+fn resume_session_request(
+    session_id: SessionId,
+    cwd: &std::path::Path,
+    additional_directories: bool,
+    directories: &[String],
+) -> ResumeSessionRequest {
+    let mut request = ResumeSessionRequest::new(session_id, cwd.to_path_buf());
+    let extra = directory_paths(additional_directories, directories);
+    if !extra.is_empty() {
+        request = request.additional_directories(extra);
+    }
+    request
 }
 
 fn no_session() -> AcpError {
@@ -2063,6 +2328,7 @@ where
                     surface.prompt_image = init.agent_capabilities.prompt_capabilities.image
                         || prompt_image_supported(&init_value);
                     surface.cordis = crate::cordis::advertised_by_agent(&init_value);
+                    surface.steer_route = steer_route(&init_value);
                     let mut connection = init_value.clone();
                     connection["command"] = json!(cfg.agent_argv().first());
                     connection["args"] = json!(cfg.agent_argv().into_iter().skip(1).collect::<Vec<_>>());
@@ -2075,10 +2341,14 @@ where
                 // Before sessionCapabilities.list existed, Martty-compatible agents paired
                 // session/list with the top-level loadSession flag. Keep that legacy route.
                 let list_session = list_session_supported(&init_value) || load_session;
+                let additional_directories = additional_directories_supported(&init_value);
+                let fork_session = fork_session_supported(&init_value);
                 let _ = bus.send(AppEvent::Ctl(CtlEvent::AgentCaps {
                     load_session,
                     list_session,
                     resume_session,
+                    fork_session,
+                    additional_directories,
                 }));
                 let auth_raw = init_value
                     .get("authMethods")
@@ -2127,6 +2397,8 @@ where
                     &bus,
                     &methods,
                     selected.as_ref(),
+                    additional_directories,
+                    &cfg.additional_directories,
                 )
                 .await
                 {
@@ -2226,6 +2498,8 @@ where
                                         &bus,
                                         &methods,
                                         selected.as_ref(),
+                                        additional_directories,
+                                        &cfg.additional_directories,
                                     )
                                     .await
                                     {
@@ -2301,8 +2575,16 @@ where
                                         .get(&sid.to_string())
                                         .is_some_and(|handle| handle.inflight.is_some());
                                     if busy {
-                                        spawn_steer_prompt(
+                                        let route = surface
+                                            .lock()
+                                            .unwrap_or_else(|e| e.into_inner())
+                                            .steer_route_for(&sid.0);
+                                        if let Some(handle) = sessions.get_mut(&sid.to_string()) {
+                                            handle.steers_inflight += 1;
+                                        }
+                                        spawn_steer(
                                             cx.clone(),
+                                            route,
                                             sid,
                                             vec![text.into()],
                                             message_id,
@@ -2398,18 +2680,26 @@ where
                                         .get(&sid.to_string())
                                         .is_some_and(|handle| handle.inflight.is_some());
                                     if busy {
-                                        let prompt_image = surface
-                                            .lock()
-                                            .unwrap_or_else(|e| e.into_inner())
-                                            .prompt_image_for(&sid.0);
+                                        let (prompt_image, route) = {
+                                            let surface = surface
+                                                .lock()
+                                                .unwrap_or_else(|e| e.into_inner());
+                                            (surface.prompt_image_for(&sid.0), surface.steer_route_for(&sid.0))
+                                        };
                                         match prompt_content_blocks(blocks, prompt_image, &cfg.workspace) {
-                                            Ok(content) if !content.is_empty() => spawn_steer_prompt(
-                                                cx.clone(),
-                                                sid,
-                                                content,
-                                                message_id,
-                                                steer_done_tx.clone(),
-                                            ),
+                                            Ok(content) if !content.is_empty() => {
+                                                if let Some(handle) = sessions.get_mut(&sid.to_string()) {
+                                                    handle.steers_inflight += 1;
+                                                }
+                                                spawn_steer(
+                                                    cx.clone(),
+                                                    route,
+                                                    sid,
+                                                    content,
+                                                    message_id,
+                                                    steer_done_tx.clone(),
+                                                )
+                                            }
                                             Ok(_) => {
                                                 let _ = bus.send(AppEvent::Ctl(CtlEvent::Error(
                                                     "empty image prompt".into(),
@@ -2653,7 +2943,8 @@ where
                                 }
                             }
                             controls.enqueue(control, &cx, &bus, &surface, &methods, &selected,
-                                &cwd, load_session, resume_session, list_session, &control_done_tx);
+                                &cwd, load_session, resume_session, list_session,
+                                additional_directories, &cfg.additional_directories, &control_done_tx);
                         }
                     }
                             if active_plugin_operation.is_none() { drain_ready_sessions(
@@ -2758,10 +3049,11 @@ where
                                         for session_id in retries {
                                             controls.enqueue(Cmd::NewSession { requester: Some(session_id), retry_auth: Some(method.id.clone()) },
                                                 &cx, &bus, &surface, &methods, &selected, &cwd,
-                                                load_session, resume_session, list_session, &control_done_tx);
+                                                load_session, resume_session, list_session,
+                                                additional_directories, &cfg.additional_directories, &control_done_tx);
                                         }
                                         if current.is_none() {
-                                            match create_prompt_session(&cx, &cwd, &surface, &bus, &methods, Some(&method)).await {
+                                            match create_prompt_session(&cx, &cwd, &surface, &bus, &methods, Some(&method), additional_directories, &cfg.additional_directories).await {
                                                 Ok(Some(sid)) => {
                                                     bind_session(&mut sessions, &mut current, &mut pending, sid);
                                                     session_auth_pending = false;
@@ -2798,12 +3090,29 @@ where
                                 selected.as_ref(), &surface, &cfg.workspace, &mut prompt_gen, &prompt_done_tx); }
                         }
                         steer = steer_done_rx.recv() => {
-                            if let Some(SteerFinish { message_id, result }) = steer {
-                                let deferred = result.is_err();
+                            if let Some(SteerFinish { session_id, message_id, deferred }) = steer {
                                 let _ = bus.send(AppEvent::Ctl(CtlEvent::SteerSettled {
                                     message_id,
                                     deferred,
                                 }));
+                                // The last in-flight request of a session whose
+                                // primary prompt already returned: the turn the
+                                // agent ran for this steer is over now.
+                                let settled = sessions.get_mut(&session_id).map(|handle| {
+                                    handle.steers_inflight = handle.steers_inflight.saturating_sub(1);
+                                    handle.inflight.is_none()
+                                        && handle.steers_inflight == 0
+                                        && handle.queue.is_empty()
+                                });
+                                if settled == Some(true) && !auth_stalled_for(&session_id, &parked, &surface) {
+                                    let _ = bus.send(AppEvent::Rpc {
+                                        method: "session.status".into(),
+                                        params: json!({
+                                            "sessionId": session_id,
+                                            "status": "idle"
+                                        }),
+                                    });
+                                }
                             }
                             if active_plugin_operation.is_none() { drain_ready_sessions(
                                 &controls,
@@ -2883,7 +3192,13 @@ where
                                 && sessions
                                     .get(&key)
                                     .is_some_and(|handle| !handle.queue.is_empty());
-                            if queued {
+                            // A steer whose `session/prompt` has not returned
+                            // keeps the session busy (pi-acp runs it as the next
+                            // turn); its finish reports idle instead.
+                            let steering = sessions
+                                .get(&key)
+                                .is_some_and(|handle| handle.steers_inflight > 0);
+                            if queued || steering {
                                 if active_plugin_operation.is_none() { drain_ready_sessions(
                                     &controls,
                                     &mut sessions,
@@ -2924,3 +3239,11 @@ where
 #[cfg(test)]
 #[path = "../tests/unit/acp__tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/acp__additional_directories_tests.rs"]
+mod additional_directories_tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/acp__fork_tests.rs"]
+mod fork_tests;

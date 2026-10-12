@@ -105,6 +105,10 @@ pub struct SessionConnection {
     pub load_session: bool,
     pub list_session: bool,
     pub resume_session: bool,
+    /// Agent advertised `sessionCapabilities.fork` as an object (`{}`).
+    pub fork_session: bool,
+    /// Agent advertised `sessionCapabilities.additionalDirectories`.
+    pub additional_directories: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -209,6 +213,10 @@ pub enum CtlEvent {
         load_session: bool,
         list_session: bool,
         resume_session: bool,
+        /// `sessionCapabilities.fork` was an object (`{}`).
+        fork_session: bool,
+        /// `sessionCapabilities.additionalDirectories` was an object (`{}`).
+        additional_directories: bool,
     },
     /// `session/new`, `session/resume`, or `session/load` resolved; the UI must use this id.
     SessionBound {
@@ -248,6 +256,8 @@ pub struct SessionListItem {
     pub id: String,
     pub title: Option<String>,
     pub updated_at: Option<String>,
+    /// `session/list` `additionalDirectories`, when the agent reported any.
+    pub additional_directories: Vec<String>,
 }
 
 /// One configured Loader entry exposed by the Host.
@@ -508,6 +518,12 @@ pub enum Cmd {
     },
     /// Live ACP `/new` → `session/new` (cwd = workspace).
     NewSession { requester: Option<String>, retry_auth: Option<String> },
+    /// Live ACP `/fork` → `session/fork` of `source_session_id`.
+    /// `requester` is the placeholder tab that receives the new session id.
+    ForkSession {
+        source_session_id: String,
+        requester: String,
+    },
     /// Live ACP `/resume` listing (`session/list`). `prefix` is the typed id;
     /// `limit` caps how many entries come back (`/resume n`).
     ListSessions {

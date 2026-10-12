@@ -21,10 +21,11 @@ fn test_cfg() -> RuntimeConfig {
         workspace: "/tmp".into(),
         session_root: fresh_root(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     }
 }
 
@@ -134,6 +135,8 @@ fn harness_identity_and_capabilities_follow_the_owning_tab() {
         connection: crate::bus::SessionConnection {
             server: Some("beta".into()), auth: crate::acp_auth::AuthSnapshot::none(),
             load_session: false, list_session: true, resume_session: true,
+            fork_session: false,
+            additional_directories: false,
         },
     }), &ctl);
     assert_eq!(app.server_info.as_deref(), Some("beta"));

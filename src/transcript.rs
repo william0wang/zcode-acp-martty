@@ -433,6 +433,10 @@ pub struct Transcript {
     turn_started: Option<Instant>,
     tool_started: HashMap<String, Instant>,
     ttft_pending: bool,
+    /// The root session is busy (`session.status running` … `idle`). Text
+    /// that streams while busy is live even after a `TurnEnd`: a steer sent
+    /// as a concurrent prompt may run as the agent's next turn.
+    running: bool,
     pub last_finish: Option<String>,
     /// Provenance-reported model of the last assembled assistant message —
     /// the ground truth of what actually answered.
@@ -464,6 +468,7 @@ impl Transcript {
             turn_started: None,
             tool_started: HashMap::new(),
             ttft_pending: false,
+            running: false,
             last_finish: None,
             last_model: None,
             expand_all: false,
@@ -696,11 +701,20 @@ impl Transcript {
     pub fn apply(&mut self, ev: UiEvent) {
         match ev {
             UiEvent::SessionStatus { session, running } => {
-                if !running && session == self.root_session {
-                    self.close_all_open();
+                if session == self.root_session {
+                    self.running = running;
+                    if !running {
+                        self.close_all_open();
+                    }
                 }
             }
             UiEvent::TurnStart { session, .. } => {
+                // A prompt turn never continues a cell streamed before it.
+                // pi-acp, for one, streams its startup context (Skills /
+                // Extensions) as agent text outside any turn; left open,
+                // the first reply landed inside that cell — above the user
+                // prompt, glued onto its last list item (#119).
+                self.close_open(&session);
                 if session == self.root_session {
                     self.stats.turns += 1;
                     self.turn_started = Some(Instant::now());
@@ -766,9 +780,20 @@ impl Transcript {
                         idx
                     }
                 };
+                // Root-session text while nothing runs (pi-acp's startup
+                // context, queue notices) is informational, not a stream:
+                // no caret, no spinner. Later chunks still coalesce into the
+                // cell until the next turn start seals it.
+                let live = session != self.root_session
+                    || self.running
+                    || self.turn_started.is_some();
                 if let Some(cell) = self.cells.get_mut(idx) {
-                    if let CellKind::Assistant { text: buf, .. } = &mut cell.kind {
+                    if let CellKind::Assistant {
+                        text: buf, done, ..
+                    } = &mut cell.kind
+                    {
                         buf.push_str(&text);
+                        *done = !live;
                     }
                     cell.bump();
                 }
@@ -885,6 +910,66 @@ impl Transcript {
                 }));
                 self.tools.insert(call_id, self.cells.len() - 1);
             }
+            UiEvent::ToolOutputDelta {
+                session,
+                call_id,
+                text,
+            } => {
+                if let Some(&idx) = self.tools.get(&call_id) {
+                    if let Some(cell) = self.cells.get_mut(idx) {
+                        if let CellKind::Tool { result, ok: None, .. } = &mut cell.kind {
+                            result.push_str(&text);
+                            cell.bump();
+                        }
+                    }
+                } else {
+                    self.close_open(&session);
+                    if session == self.root_session {
+                        self.tool_started.insert(call_id.clone(), Instant::now());
+                    }
+                    let agent = self.agent_label(&session);
+                    self.cells.push(Cell::new(CellKind::Tool {
+                        name: "tool".into(),
+                        title: call_id.clone(),
+                        request: String::new(),
+                        result: text,
+                        ok: None,
+                        error: None,
+                        agent,
+                    }));
+                    self.tools.insert(call_id, self.cells.len() - 1);
+                }
+            }
+            UiEvent::ToolOutputSnapshot {
+                session,
+                call_id,
+                text,
+            } => {
+                if let Some(&idx) = self.tools.get(&call_id) {
+                    if let Some(cell) = self.cells.get_mut(idx) {
+                        if let CellKind::Tool { result, ok: None, .. } = &mut cell.kind {
+                            *result = text;
+                            cell.bump();
+                        }
+                    }
+                } else {
+                    self.close_open(&session);
+                    if session == self.root_session {
+                        self.tool_started.insert(call_id.clone(), Instant::now());
+                    }
+                    let agent = self.agent_label(&session);
+                    self.cells.push(Cell::new(CellKind::Tool {
+                        name: "tool".into(),
+                        title: call_id.clone(),
+                        request: String::new(),
+                        result: text,
+                        ok: None,
+                        error: None,
+                        agent,
+                    }));
+                    self.tools.insert(call_id, self.cells.len() - 1);
+                }
+            }
             UiEvent::ToolResult {
                 session,
                 call_id,
@@ -908,7 +993,9 @@ impl Transcript {
                                 ..
                             } = &mut cell.kind
                             {
-                                *result = text;
+                                if !text.is_empty() || result.is_empty() {
+                                    *result = text;
+                                }
                                 *ok = Some(!is_error);
                                 *e = error;
                             }
@@ -1076,9 +1163,17 @@ impl Transcript {
         }
     }
 
-    /// Is any assistant/reasoning cell currently streaming?
+    /// Is any assistant/reasoning cell currently streaming? Out-of-turn
+    /// text stays open for coalescing but is already settled (`done`).
     pub fn streaming(&self) -> bool {
-        !self.open_assistant.is_empty() || !self.open_reasoning.is_empty()
+        let live = |idx: &usize| {
+            matches!(
+                self.cells.get(*idx).map(|cell| &cell.kind),
+                Some(CellKind::Assistant { done: false, .. })
+                    | Some(CellKind::Reasoning { done: false, .. })
+            )
+        };
+        self.open_assistant.values().any(live) || self.open_reasoning.values().any(live)
     }
 
     /// Reasoning already renders its own live `thinking…` row. Assistant

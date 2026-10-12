@@ -11,10 +11,11 @@ fn test_app() -> (App, Receiver<AppEvent>) {
             .to_string_lossy()
             .into_owned(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (tx, rx) = std::sync::mpsc::channel::<AppEvent>();
     let app = App::new(Some(Theme::dark()), cfg, "s1".into(), true, false, tx);

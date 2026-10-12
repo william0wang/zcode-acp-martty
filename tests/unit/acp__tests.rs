@@ -336,10 +336,11 @@ async fn plugin_ui_events_are_compositor_notifications_not_prompts() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -550,10 +551,11 @@ async fn cordis_requests_stay_local_when_the_agent_did_not_advertise_cordis() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -628,10 +630,11 @@ async fn client_compositor_catalog_does_not_require_agent_cordis_capability() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -708,10 +711,11 @@ async fn client_compositor_command_does_not_require_agent_cordis_capability() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -816,10 +820,11 @@ async fn harness_new_action_uses_the_native_new_tab_flow_without_reinitializing(
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -937,7 +942,8 @@ async fn overlay_cancel_reaches_the_compositor_while_submit_is_pending() {
     let cfg = RuntimeConfig {
         bin: "demo".into(), cordis: "demo".into(), workspace: "/tmp".into(),
         session_root: "/tmp".into(), provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(), max_tokens: None, base_url: None, api_key: None,
+        model: "deepseek-flash".into(), max_tokens: None, base_url: None, api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -1050,7 +1056,8 @@ async fn plugin_operation_defers_agent_requests_and_queued_prompts_until_complet
     let cfg = RuntimeConfig {
         bin: "demo".into(), cordis: "demo".into(), workspace: "/tmp".into(),
         session_root: "/tmp".into(), provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(), max_tokens: None, base_url: None, api_key: None,
+        model: "deepseek-flash".into(), max_tokens: None, base_url: None, api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -1174,6 +1181,7 @@ async fn fetch_efforts_waits_for_the_in_flight_model_switch_fold() {
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: vec![],
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -1436,10 +1444,11 @@ async fn form_auth_stays_configured_when_the_startup_session_succeeds() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -1556,10 +1565,11 @@ async fn elicitation_create_waits_for_the_tui_form_reply() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -1661,10 +1671,11 @@ async fn new_session_binds_before_applying_initial_config() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -1743,10 +1754,11 @@ async fn set_config_option_response_updates_client_state_without_a_notification(
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -1853,10 +1865,11 @@ async fn effort_selection_uses_the_advertised_thought_level_config_id() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -1975,10 +1988,11 @@ async fn client_tree_config_set_uses_standard_acp_and_folds_response_only_state(
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -2089,10 +2103,11 @@ async fn resume_session_prefers_resume_and_binds_before_applying_initial_config(
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -2202,10 +2217,11 @@ async fn resume_session_falls_back_to_load_when_resume_is_rejected() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -2324,10 +2340,11 @@ async fn prompts_while_running_wait_in_fifo_without_session_cancel() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -2467,10 +2484,11 @@ async fn composition_catalog_is_ready_before_the_first_prompt() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -2586,10 +2604,11 @@ async fn auth_failure_parks_prompts_but_reports_steers_back_to_the_client() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -2753,7 +2772,8 @@ async fn authenticate_rejection_reports_failure_instead_of_another_sign_in_hint(
     let cfg = RuntimeConfig {
         bin: "demo".into(), cordis: "demo".into(), workspace: "/tmp".into(),
         session_root: "/tmp".into(), provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(), max_tokens: None, base_url: None, api_key: None,
+        model: "deepseek-flash".into(), max_tokens: None, base_url: None, api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -2846,7 +2866,8 @@ async fn assert_authentication_before_session_setup(setup_error: Option<i32>) {
     let cfg = RuntimeConfig {
         bin: "demo".into(), cordis: "demo".into(), workspace: "/tmp".into(),
         session_root: "/tmp".into(), provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(), max_tokens: None, base_url: None, api_key: None,
+        model: "deepseek-flash".into(), max_tokens: None, base_url: None, api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -2981,10 +3002,11 @@ async fn session_new_auth_failure_parks_the_first_intent_without_retry_storms() 
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -3149,10 +3171,11 @@ async fn late_steer_rejection_is_not_retried_by_the_transport_after_auth() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -3322,10 +3345,11 @@ async fn steer_sends_a_concurrent_prompt_without_interrupting_the_turn() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -3483,10 +3507,11 @@ async fn rejected_steer_reports_deferred_without_transport_retry() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -3642,10 +3667,11 @@ async fn interrupt_sends_session_cancel_while_prompt_is_in_flight() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -3869,10 +3895,11 @@ async fn sessions_run_concurrent_prompts_on_one_connection() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -4022,10 +4049,11 @@ async fn stale_text_prompt_finish_cannot_release_a_rebound_sessions_new_turn() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -4158,10 +4186,11 @@ async fn prompt_for_an_unbound_session_is_rejected_not_rerouted() {
         workspace: "/tmp".into(),
         session_root: "/tmp".into(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus_tx, bus_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -4277,6 +4306,8 @@ fn stream_owned_new_session_keeps_the_negotiated_connection_facts() {
     surface.lock().unwrap().initial_connection = Some(crate::bus::SessionConnection {
         server: Some("profile-host".into()), auth: AuthSnapshot::none(),
         load_session: true, list_session: true, resume_session: false,
+        fork_session: false,
+        additional_directories: false,
     });
     let (bus, events) = std::sync::mpsc::channel();
     apply_setup(&json!({"sessionId":"stream-second"}), None, &surface, &bus);
@@ -4324,4 +4355,283 @@ fn structured_auth_failure_opens_owning_connection_and_parks_original_prompt() {
         _ => panic!("expected owning-session authentication panel"),
     }
     assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn steer_route_reads_initialize_meta() {
+    assert_eq!(
+        steer_route(&json!({ "_meta": { "steering": { "supported": true } } })),
+        SteerRoute::SessionSteering
+    );
+    assert_eq!(
+        steer_route(&json!({
+            "agentCapabilities": { "_meta": { "steering": { "supported": true } } }
+        })),
+        SteerRoute::SessionSteering
+    );
+    assert_eq!(
+        steer_route(&json!({
+            "_meta": { "minimax-code/extensions": {
+                "version": 1,
+                "methods": ["session/activate", "mcode/session/steer"]
+            } }
+        })),
+        SteerRoute::McodeSteer
+    );
+    // No steer method listed: fall back to the concurrent prompt.
+    assert_eq!(
+        steer_route(&json!({
+            "_meta": { "minimax-code/extensions": { "methods": ["session/activate"] } }
+        })),
+        SteerRoute::ConcurrentPrompt
+    );
+    assert_eq!(
+        steer_route(&json!({
+            "agentCapabilities": { "_meta": { "claudeCode": { "promptQueueing": true } } }
+        })),
+        SteerRoute::ConcurrentPrompt
+    );
+    assert_eq!(steer_route(&json!({})), SteerRoute::ConcurrentPrompt);
+}
+
+#[test]
+fn session_steering_request_injects_or_defers() {
+    let sid = SessionId::new("s");
+    match steer_request(SteerRoute::SessionSteering, &sid, vec!["go".into()], 7).unwrap() {
+        SteerRequest::Ext(message) => {
+            assert_eq!(message.method, "_session/steering");
+            assert_eq!(message.params["sessionId"], "s");
+            assert_eq!(message.params["prompt"][0]["type"], "text");
+            assert_eq!(message.params["prompt"][0]["text"], "go");
+            assert_eq!(message.params["_meta"]["steering"]["idleBehavior"], "promptRequired");
+        }
+        _ => panic!("dsh steering is an extension request"),
+    }
+    let route = SteerRoute::SessionSteering;
+    assert!(!steer_ext_deferred(route, &Ok(json!({ "outcome": "injected" }))));
+    // claude-agent-acp without `idleBehavior`: the agent took it as a new turn.
+    assert!(!steer_ext_deferred(route, &Ok(json!({ "outcome": "startedNewTurn" }))));
+    assert!(steer_ext_deferred(
+        route,
+        &Ok(json!({ "outcome": "promptRequired", "reason": "noRunningTurn" }))
+    ));
+    assert!(steer_ext_deferred(route, &Err(AcpError::new(-32602, "bad"))));
+}
+
+#[test]
+fn mcode_steer_request_is_text_only() {
+    let sid = SessionId::new("s");
+    match steer_request(SteerRoute::McodeSteer, &sid, vec!["a".into(), "b".into()], 9).unwrap() {
+        SteerRequest::Ext(message) => {
+            assert_eq!(message.method, "mcode/session/steer");
+            assert_eq!(message.params["sessionId"], "s");
+            assert_eq!(message.params["text"], "a\nb");
+            assert_eq!(message.params["clientRequestId"], "martty-steer-9");
+        }
+        _ => panic!("mcode steer is an extension request"),
+    }
+    let with_image = vec![
+        "look".into(),
+        ContentBlock::ResourceLink(ResourceLink::new("shot.png", "file:///tmp/shot.png")),
+    ];
+    assert!(matches!(
+        steer_request(SteerRoute::McodeSteer, &sid, with_image, 9).unwrap(),
+        SteerRequest::Unsupported
+    ));
+    assert!(matches!(
+        steer_request(SteerRoute::McodeSteer, &sid, vec![" ".into()], 9).unwrap(),
+        SteerRequest::Unsupported
+    ));
+    assert!(!steer_ext_deferred(
+        SteerRoute::McodeSteer,
+        &Ok(json!({ "turnId": "t1", "mode": "steered" }))
+    ));
+    assert!(steer_ext_deferred(SteerRoute::McodeSteer, &Err(AcpError::new(-32602, "no turn"))));
+    assert!(matches!(
+        steer_request(SteerRoute::ConcurrentPrompt, &sid, vec!["x".into()], 1).unwrap(),
+        SteerRequest::Prompt(content) if content.len() == 1
+    ));
+}
+
+/// Concurrent-prompt steer against an agent that cannot join a turn
+/// (pi-acp queues the second `session/prompt` and runs it as the next
+/// turn): the primary prompt returns first, then the queued turn streams,
+/// then the steer's own response arrives. The session must stay busy
+/// through that queued turn — `session.status idle` only once the last
+/// in-flight request has returned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_steer_keeps_the_session_running_until_its_prompt_returns() {
+    use agent_client_protocol::schema::v1::{
+        AgentCapabilities, InitializeRequest, InitializeResponse, NewSessionRequest,
+        NewSessionResponse, PromptResponse, StopReason,
+    };
+    use std::collections::VecDeque;
+    use std::time::{Duration, Instant};
+
+    let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (release_first_tx, release_first_rx) = tokio::sync::oneshot::channel::<()>();
+    let (release_steer_tx, release_steer_rx) = tokio::sync::oneshot::channel::<()>();
+    let releases = Arc::new(Mutex::new(VecDeque::from([release_first_rx, release_steer_rx])));
+
+    let agent = Agent
+        .builder()
+        .name("queueing-mock")
+        .on_receive_request(
+            async move |init: InitializeRequest, responder, _cx| {
+                responder.respond(
+                    InitializeResponse::new(init.protocol_version)
+                        .agent_capabilities(AgentCapabilities::new())
+                        .agent_info(Implementation::new("queueing-mock", "0")),
+                )
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |_req: NewSessionRequest, responder, _cx| {
+                responder.respond(NewSessionResponse::new(SessionId::new("s1")))
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let releases = Arc::clone(&releases);
+                async move |req: PromptRequest, responder, cx| {
+                    let text = req
+                        .prompt
+                        .iter()
+                        .find_map(|block| match block {
+                            ContentBlock::Text(text) => Some(text.text.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_default();
+                    let _ = prompt_tx.send(text);
+                    let release = releases.lock().unwrap().pop_front();
+                    cx.spawn(async move {
+                        if let Some(release) = release {
+                            let _ = release.await;
+                        }
+                        let _ = responder.respond(PromptResponse::new(StopReason::EndTurn));
+                        Ok(())
+                    })?;
+                    Ok(())
+                }
+            },
+            on_receive_request!(),
+        );
+
+    let cfg = RuntimeConfig {
+        bin: "demo".into(),
+        cordis: "demo".into(),
+        workspace: "/tmp".into(),
+        session_root: "/tmp".into(),
+        provider: "deepseek-official".into(),
+        model: "deepseek-flash".into(),
+        max_tokens: None,
+        base_url: None,
+        api_key: None,
+        additional_directories: Vec::new(),
+    };
+    let (bus_tx, bus_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+    let client = tokio::spawn(async move { connect(agent, cfg, bus_tx, cmd_rx).await });
+
+    // Drain the bus until `predicate` matches or `wait` elapses.
+    let bus_until = |predicate: &dyn Fn(&AppEvent) -> bool, wait: Duration| -> bool {
+        let deadline = Instant::now() + wait;
+        while Instant::now() < deadline {
+            match bus_rx.recv_timeout(Duration::from_millis(20)) {
+                Ok(event) if predicate(&event) => return true,
+                Ok(_) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(err) => panic!("{err}"),
+            }
+        }
+        false
+    };
+    let status_is = |wanted: &'static str| {
+        move |event: &AppEvent| {
+            matches!(
+                event,
+                AppEvent::Rpc { method, params }
+                    if method == "session.status"
+                        && params["sessionId"] == "s1"
+                        && params["status"] == wanted
+            )
+        }
+    };
+    assert!(
+        bus_until(
+            &|event| matches!(event, AppEvent::Ctl(CtlEvent::SessionBound { .. })),
+            Duration::from_secs(2)
+        ),
+        "session binds"
+    );
+
+    cmd_tx
+        .send(Cmd::Prompt {
+            session_id: "s1".into(),
+            text: "thanks".into(),
+        })
+        .expect("primary prompt");
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), prompt_rx.recv())
+            .await
+            .expect("primary prompt reaches the agent")
+            .as_deref(),
+        Some("thanks")
+    );
+    assert!(bus_until(&status_is("running"), Duration::from_secs(2)), "running");
+
+    cmd_tx
+        .send(Cmd::Steer {
+            session_id: "s1".into(),
+            message_id: 7,
+            text: "fadf".into(),
+        })
+        .expect("steer");
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), prompt_rx.recv())
+            .await
+            .expect("steer reaches the agent as a concurrent prompt")
+            .as_deref(),
+        Some("fadf")
+    );
+
+    // The primary prompt returns; the agent is still running the queued turn.
+    let _ = release_first_tx.send(());
+    assert!(
+        bus_until(
+            &|event| matches!(
+                event,
+                AppEvent::Ui(crate::events::UiEvent::TurnEnd { session, kind })
+                    if session == "s1" && kind == "completed"
+            ),
+            Duration::from_secs(2)
+        ),
+        "the primary turn ends"
+    );
+    assert!(
+        !bus_until(&status_is("idle"), Duration::from_millis(400)),
+        "the session must not report idle while the steer's prompt is in flight"
+    );
+
+    // The queued turn settles: the steer's `session/prompt` returns.
+    let _ = release_steer_tx.send(());
+    assert!(
+        bus_until(
+            &|event| matches!(
+                event,
+                AppEvent::Ctl(CtlEvent::SteerSettled { message_id: 7, deferred: false })
+            ),
+            Duration::from_secs(2)
+        ),
+        "the steer settles as delivered"
+    );
+    assert!(
+        bus_until(&status_is("idle"), Duration::from_secs(2)),
+        "idle once every in-flight prompt has returned"
+    );
+
+    let _ = cmd_tx.send(Cmd::Shutdown);
+    let _ = client.await;
 }

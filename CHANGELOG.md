@@ -5,7 +5,92 @@ All notable changes to this project are documented here. The project follows
 
 ## [Unreleased]
 
+### Changed
+
+- Merge upstream `openma-ai/Martty` v0.3.1: native `/fork` command,
+  `additionalDirectories` capability gating, Send-Now steer negotiation,
+  session-mode updates after acknowledged changes, per-platform native npm
+  packages, and release-notes CI. The fork adopts the split packaging but
+  publishes the platform packages as `zcode-acp-martty-<platform>-<arch>`
+  (thin-package optional dependencies; `spawn-tui.js` resolves the fork's
+  package names first, `package-native.mjs` / `package-alias.mjs` take
+  `--name-prefix` / `--native-prefix` to inject them).
+
+### Added
+
+- Check releases in CI before npm publish. A pull request lists pull requests
+  merged since the previous tag without failing, and a version bump must keep
+  the npm package, lockfile, and Cargo versions together. A `v*` tag must
+  match those versions (and a README version pin, when one is written) and
+  the generated GitHub release notes must name every pull request merged
+  since the previous tag. Minor and major bumps need the `release:minor` or
+  `release:major` label. `vX.Y.Z-beta.N` stays a prerelease of that core bump.
+- Add a native `/fork` command. It appears enabled only when `initialize`
+  reports `agentCapabilities.sessionCapabilities.fork` as an object, and it
+  sends standard `session/fork` for the whole current session (`cwd` and
+  `mcpServers`, aligned with `session/load`, no message id and no `_meta`).
+  The new session opens as another tab. A harness command that reuses a
+  builtin name, including `/model` and `/session`, stays in the `/` menu
+  with the agent name as a prefix and is sent through as a prompt.
+- Send repeatable `--add-dir` as standard ACP `additionalDirectories` on
+  `session/new`, `session/load`, and `session/resume` only when initialize
+  advertises `sessionCapabilities.additionalDirectories`. Agents that do not
+  advertise it do not receive the field, and the TUI says the directories were
+  not sent. The Pi catalog entry now launches `@openma/pi-acp@0.1.6`.
+- Route Ctrl+Enter steering by the agent’s `initialize` `_meta`: the shared `_session/steering` extension when `_meta.steering.supported` is advertised (claude-agent-acp, codex-acp, DeepSeek Harness; `promptRequired` re-queues), MiniMax Code `mcode/session/steer` (text only; its `session/prompt` rejects concurrent turns), otherwise the legacy concurrent `session/prompt`. Stream sessions carry that `_meta` on `marttyConnection` so each connection keeps its own route. `scripts/mcode-steer.e2e.mjs` drives the real TUI against `mcode acp` (opt-in, uses model tokens).
+- Add the org contribution guide (`CONTRIBUTING.md`), with Martty's toolchain,
+  CI, and release steps, plus a pull request evidence template and a bug report
+  template.
+
+### Changed
+
+- Launch the Pi catalog entry with `@openma/pi-acp@0.1.6` (was 0.1.4) for both
+  the bundled snapshot and a refreshed ACP catalog. Official registry records
+  stay untouched. 0.1.6 again writes model and thinking changes to pi's global
+  defaults (`defaultProvider`, `defaultModel`, `defaultThinkingLevel`); Martty
+  does not wrap or block that file.
+- Depend on `@openma/deepseek-harness-acp` 0.4.37, which bundles DeepSeek
+  Harness 0.2.0-rc.2 and `@earendil-works/pi-ai` 0.87.1. The development
+  harness baseline moves to `@deepseek-ai/dsh` 0.2.0-rc.2 so profile installs
+  exercise that same generation. Upstream adds fork sessions from an inclusive
+  assistant message (deepseek-harness-acp #37).
+- Use `deepseek-flash` as the built-in model default, demo catalog entry, and
+  fallback picker id. Saved `deepseek-v4-flash` and
+  `deepseek-v4-flash-vision-exp` selections on the official DeepSeek route,
+  and dropped Moonshot `kimi-k2*` ids (`kimi-k2.5` and the older K2 previews),
+  are rewritten to `deepseek-flash` or `kimi-k2.6` when startup configuration
+  is resolved. The same ids stay unchanged on routes whose catalogs still
+  list them.
+
+## [0.3.1] - 2026-09-30
+
+### Changed
+
+- Publish each Martty native binary as a platform-specific npm package. The
+  `martty` package now installs the matching binary through optional dependencies
+  instead of downloading all five platforms.
+
 ### Fixed
+
+- Prefer `@openma/pi-acp@0.1.3` for the Pi entry in both the bundled and refreshed ACP catalog; require Node.js 22.19 or newer for the npm package.
+- Keep the session busy while a queued concurrent steer is still running.
+- Seal startup text before the first prompt turn so pi-acp's first reply renders
+  below the user prompt (#119).
+- Delete moved Kitty image placements by image and placement id, preventing
+  stacked icons, thumbnails, and pets.
+- Honor the selected provider when model ids overlap, reconcile the status bar
+  with the agent-reported model, and avoid duplicate provider names in the picker.
+- Display running tool output from ACP content snapshots and terminal output
+  deltas, including updates without a repeated status; keep the full output
+  when a tool finishes. This restores live Bash and general tool text with
+  current DeepSeek Harness ACP and other compatible agents.
+- Refresh the bundled ACP Registry snapshot, including the current pi-acp
+  entry, and update the embedded ACP adapter and development DSH baseline.
+
+- Refresh the selected ACP session mode after a successful `session/set_mode`
+  response, so Shift+Tab continues cycling with agents such as OpenCode that
+  do not send a mode notification. Apply fallback configuration responses and
+  report rejected changes instead of displaying success.
 
 - Route structured ACP authentication failures to the owning session’s authentication panel and retry parked requests after authentication; omit connection metadata from prompt error text.
 - Show DeepSeek’s icon from the installed Lobe SVG library when the ACP Registry has no entry, with offline rendering, versioned image caching and name fallback.

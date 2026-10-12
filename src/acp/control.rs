@@ -62,12 +62,16 @@ impl ControlWorkers {
         load_session: bool,
         resume_session: bool,
         list_session: bool,
+        additional_directories: bool,
+        directories: &[String],
         done: &tokio::sync::mpsc::UnboundedSender<ControlFinish>,
     ) {
         // Preserve setup FIFO and per-session mutation order without blocking
         // prompts, cancellations, or other sessions' control requests.
         let lane = match &cmd {
-            Cmd::NewSession { .. } | Cmd::ResumeSession { .. } => "setup".to_string(),
+            Cmd::NewSession { .. } | Cmd::ResumeSession { .. } | Cmd::ForkSession { .. } => {
+                "setup".to_string()
+            }
             Cmd::SelectModel { session_id, .. }
             | Cmd::FetchEfforts { session_id, .. }
             | Cmd::SetPermission { session_id, .. }
@@ -100,6 +104,8 @@ impl ControlWorkers {
             load_session,
             resume_session,
             list_session,
+            additional_directories,
+            directories.to_vec(),
             done.clone(),
         );
         let done = done.clone();
@@ -124,6 +130,8 @@ async fn run_control(
     load_session: bool,
     resume_session: bool,
     list_session: bool,
+    additional_directories: bool,
+    directories: Vec<String>,
     done: tokio::sync::mpsc::UnboundedSender<ControlFinish>,
 ) {
     let connection = {
@@ -148,29 +156,43 @@ async fn run_control(
     let load_session = snapshot.as_ref().map(|snapshot| snapshot.load_session).unwrap_or(load_session);
     let resume_session = snapshot.as_ref().map(|snapshot| snapshot.resume_session).unwrap_or(resume_session);
     let list_session = snapshot.as_ref().map(|snapshot| snapshot.list_session).unwrap_or(list_session);
+    let additional_directories = snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.additional_directories)
+        .unwrap_or(additional_directories);
     let (requester, retry_auth) = match &cmd {
         Cmd::NewSession { requester, retry_auth } => (requester.clone(), retry_auth.clone()),
+        Cmd::ForkSession { requester, .. } => (Some(requester.clone()), None),
         _ => (None, None),
     };
     match cmd {
         Cmd::SelectModel {
             session_id: cmd_session,
+            provider,
             model,
             effort,
-            ..
         } => {
             let sid = SessionId::new(cmd_session);
             if let Some(model) = model {
+                // Agents advertise `provider/id` values, and the same id can
+                // live under several providers (an OAuth account and a
+                // proxy both serving `gpt-5.6-sol`): the picker's provider
+                // decides which one is meant, never the first id match.
                 let value = {
                     let surface = surface.lock().unwrap_or_else(|e| e.into_inner());
-                    match surface
-                        .session(&sid.0)
-                        .models
-                        .iter()
-                        .find(|m| m.id == model)
-                    {
-                        Some(m) if !m.provider.is_empty() => {
+                    let models = &surface.session(&sid.0).models;
+                    let matched = match provider.as_deref() {
+                        Some(wanted) => models
+                            .iter()
+                            .find(|m| m.id == model && m.provider == wanted),
+                        None => models.iter().find(|m| m.id == model),
+                    };
+                    match (matched, provider.as_deref()) {
+                        (Some(m), _) if !m.provider.is_empty() => {
                             format!("{}/{}", m.provider, model)
+                        }
+                        (None, Some(wanted)) if !wanted.is_empty() => {
+                            format!("{wanted}/{model}")
                         }
                         _ => model.clone(),
                     }
@@ -465,12 +487,45 @@ async fn run_control(
             preset,
         } => {
             let sid = SessionId::new(cmd_session);
-            match cx
+            let result = match cx
                 .send_request(SetSessionModeRequest::new(sid.clone(), preset.clone()))
                 .block_task_deadline()
                 .await
             {
                 Ok(_) => {
+                    // Some agents acknowledge set_mode without sending a
+                    // current_mode_update. Advance the owning session only
+                    // after acceptance so the next shortcut uses this mode.
+                    let _ = bus.send(AppEvent::Ctl(CtlEvent::SessionModes {
+                        session_id: Some(sid.to_string()),
+                        modes: Vec::new(),
+                        current: Some(preset.clone()),
+                    }));
+                    Ok(())
+                }
+                Err(err) if is_auth_required_error(&err) => Err(err),
+                Err(_) => {
+                    match cx
+                        .send_request(SetSessionConfigOptionRequest::new(
+                            sid.clone(),
+                            "mode",
+                            SessionConfigOptionValue::value_id(preset.clone()),
+                        ))
+                        .block_task_deadline()
+                        .await
+                    {
+                        Ok(response) => {
+                            if let Ok(value) = serde_json::to_value(&response) {
+                                let _ = apply_config_response(&value, &sid, &surface, &bus);
+                            }
+                            Ok(())
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
+            };
+            match result {
+                Ok(()) => {
                     let _ = bus.send(AppEvent::Ctl(CtlEvent::TuiOpDone(format!(
                         "permission → {preset}"
                     ))));
@@ -484,16 +539,8 @@ async fn run_control(
                     );
                 }
                 Err(err) => {
-                    let _ = cx
-                        .send_request(SetSessionConfigOptionRequest::new(
-                            sid,
-                            "mode",
-                            SessionConfigOptionValue::value_id(preset.clone()),
-                        ))
-                        .block_task_deadline()
-                        .await;
-                    let _ = bus.send(AppEvent::Ctl(CtlEvent::TuiOpDone(format!(
-                        "permission → {preset} ({err})"
+                    let _ = bus.send(AppEvent::Ctl(CtlEvent::TuiOpFailed(format!(
+                        "permission switch failed: {err}"
                     ))));
                 }
             }
@@ -640,7 +687,7 @@ async fn run_control(
             let _ = done.send(ControlFinish::Authenticated { method, result });
         }
         Cmd::NewSession { .. } => {
-            let mut request = NewSessionRequest::new(cwd.clone());
+            let mut request = new_session_request(&cwd, additional_directories, &directories);
             if let Some(method) = retry_auth {
                 request = request.meta(json!({"marttyAuthMethod": method}).as_object().unwrap().clone());
             }
@@ -659,6 +706,41 @@ async fn run_control(
                         notice,
                     )
                 });
+            let _ = done.send(ControlFinish::Setup { result, requester });
+        }
+        Cmd::ForkSession {
+            source_session_id, ..
+        } => {
+            let params = fork_session_params(
+                SessionId::new(source_session_id.clone()),
+                &cwd,
+                additional_directories,
+                &directories,
+            );
+            let result = match UntypedMessage::new("session/fork", params) {
+                Ok(request) => match cx.send_request(request).block_task_setup_deadline().await {
+                    Ok(value) => match value
+                        .get("sessionId")
+                        .or_else(|| value.get("session_id"))
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.is_empty())
+                    {
+                        Some(id) => {
+                            let sid = SessionId::new(id.to_string());
+                            let notice = Some(format!("forked from {source_session_id} · {id}"));
+                            Ok((sid, value, notice))
+                        }
+                        None => Err(AcpError::new(-32603, "session/fork returned no sessionId")),
+                    },
+                    Err(err) if is_auth_required_error(&err) => Err(err),
+                    Err(err) => Err(AcpError::new(
+                        i32::from(err.code),
+                        format!("session/fork: {}", acp_error_message(&err)),
+                    )
+                    .data(err.data.clone())),
+                },
+                Err(err) => Err(AcpError::new(-32603, format!("session/fork: {err}"))),
+            };
             let _ = done.send(ControlFinish::Setup { result, requester });
         }
         Cmd::ListSessions {
@@ -688,6 +770,11 @@ async fn run_control(
                             id: s.session_id.to_string(),
                             title: s.title,
                             updated_at: s.updated_at,
+                            additional_directories: s
+                                .additional_directories
+                                .iter()
+                                .map(|path| path.to_string_lossy().into_owned())
+                                .collect(),
                         })
                         .collect();
                     // `/resume n`: the limit is applied on the
@@ -722,20 +809,35 @@ async fn run_control(
             let sid = SessionId::new(id.clone());
             let restored = if resume_session {
                 match cx
-                    .send_request(ResumeSessionRequest::new(sid.clone(), cwd.clone()))
+                    .send_request(resume_session_request(
+                        sid.clone(),
+                        &cwd,
+                        additional_directories,
+                        &directories,
+                    ))
                     .block_task_setup_deadline()
                     .await
                 {
                     Ok(resumed) => Ok((serde_json::to_value(resumed).unwrap_or(Value::Null), true)),
                     Err(err) if load_session && !is_auth_required_error(&err) => cx
-                        .send_request(LoadSessionRequest::new(sid.clone(), cwd.clone()))
+                        .send_request(load_session_request(
+                            sid.clone(),
+                            &cwd,
+                            additional_directories,
+                            &directories,
+                        ))
                         .block_task_setup_deadline()
                         .await
                         .map(|loaded| (serde_json::to_value(loaded).unwrap_or(Value::Null), false)),
                     Err(err) => Err(err),
                 }
             } else {
-                cx.send_request(LoadSessionRequest::new(sid.clone(), cwd.clone()))
+                cx.send_request(load_session_request(
+                    sid.clone(),
+                    &cwd,
+                    additional_directories,
+                    &directories,
+                ))
                     .block_task_setup_deadline()
                     .await
                     .map(|loaded| (serde_json::to_value(loaded).unwrap_or(Value::Null), false))

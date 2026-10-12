@@ -28,7 +28,7 @@
   <a href="https://www.npmjs.com/package/martty"><img src="https://img.shields.io/npm/v/martty?logo=npm&color=cb3837" alt="npm version" /></a>
   <a href="https://www.npmjs.com/package/martty"><img src="https://img.shields.io/npm/dm/martty" alt="npm downloads" /></a>
   <a href="https://github.com/openma-ai/Martty/actions/workflows/package-npm.yml"><img src="https://github.com/openma-ai/Martty/actions/workflows/package-npm.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/node/v/martty" alt="Node.js 18+" />
+  <img src="https://img.shields.io/node/v/martty" alt="Node.js 22.19+" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT" /></a>
 </p>
 
@@ -273,7 +273,8 @@ martty harness remove <id> --cleanup           # 同时清理独占私有安装�
 `martty harness` CLI，或在运行中的 TUI 输入 `/harness` 打开原生单选表单。
 `harness find` 默认读取缓存或随包的官方目录快照，`harness find --refresh` 才联网刷新
 （`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`），并把本地
-PATH 扫描结果作为补充；它不是 npm 包搜索，也不会在后台切换。Registry 的 `npx` / `uvx`
+PATH 扫描结果作为补充；它不是 npm 包搜索，也不会在后台切换。Pi 条目由 Martty 使用
+`@openma/pi-acp@0.1.6` 配置；官方目录原始快照仍保持不变。Registry 的 `npx` / `uvx`
 分发会显示可直接配置的命令，不会添加 `--yes` 或 `--prefer-offline`。Registry 的
 `binary` 分发在选择后明确确认，并下载到 `$MARTTY_HOME/bin/<id>/<version>/<platform>`，
 校验 SHA-256 后再配置；不会写系统 PATH。TUI 中的 `/harness find` 提供同样的发现、配置、
@@ -381,9 +382,15 @@ stdin/stdout；用户 TTY 使用 fd 3/4，两条通道互不混用。
 | [ACP 连接 Mermaid](docs/diagrams/acp-connectivity.mmd) | 默认 DSH 与其他 ACP server 的连接方式 |
 | [迁移计划](docs/migration.md) | 已完成能力与后续阶段 |
 
+## English documentation
+
+See the [English README](README.en.md) for installation, Harness setup,
+[session modes and Shift+Tab](README.en.md#session-modes-and-shifttab), and
+[building and testing from source](README.en.md#build-from-source).
+
 ## 从源码构建
 
-需要 Rust stable 和 Node.js 18+：
+需要 Rust stable 和 Node.js 22.19+：
 
 ```sh
 make rust-test
@@ -398,7 +405,13 @@ make tui-test
 ```
 
 GitHub Actions 会构建 macOS arm64/x64、Linux arm64/x64 和 Windows x64 原生二进制，
-再将它们打包进 npm 发布物。
+分别发布为 `@openma/martty-<platform>-<arch>` 包。安装 `martty` 时 npm 仅安装
+当前平台的可选依赖；若使用了 `--omit=optional`，需重新安装并启用可选依赖。
+
+本 fork（`zcode-acp-martty`）沿用同一拆分发布，但平台包使用自有名称
+`zcode-acp-martty-<platform>-<arch>`（薄包的 optionalDependencies 指向它们，
+打包脚本通过 `--name-prefix` / `--native-prefix` 注入，见 `scripts/package-native.mjs`
+与 `scripts/package-alias.mjs`）。
 
 ## 项目结构
 

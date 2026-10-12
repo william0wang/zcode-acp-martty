@@ -176,7 +176,16 @@ jobs:
       - name: Pack npm packages
         run: |
           mkdir -p dist
-          node scripts/package-alias.mjs npm npm-martty zcode-acp-martty
+          node scripts/package-native.mjs package \
+            --vendor-root npm/vendor \
+            --package-root npm-native \
+            --version "$(node -p "require('./npm/package.json').version")" \
+            --name-prefix zcode-acp-martty \
+            --repository "git+https://github.com/william0wang/zcode-acp-martty.git"
+          for package in ./npm-native/*; do
+            npm pack "$package" --pack-destination dist
+          done
+          node scripts/package-alias.mjs npm npm-martty zcode-acp-martty --native-prefix zcode-acp-martty
           npm pack ./npm-martty --pack-destination dist
       - uses: actions/upload-artifact@v7
         with:
@@ -185,13 +194,70 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Version bumps must keep npm, Cargo, and any README pin in sync, and
+  # stay on patch unless labeled release:minor / release:major. Other pull
+  # requests only get a notice listing unreleased PRs on the base branch.
+  # Beta tags (vX.Y.Z-beta.N) follow the existing prerelease rules.
+  release-check:
+    name: Release check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Fetch the base branch and tags
+        run: |
+          git fetch --no-recurse-submodules origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          git fetch --tags --force origin
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: List unreleased pull requests
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-check.mjs
+
+  # Tag push, before npm publish. Previews the same notes
+  # `gh release create --generate-notes` will publish and requires every
+  # pull request merged since the previous reachable v* tag.
+  release-tag:
+    name: Release tag
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Fetch tags
+        run: git fetch --tags --force origin
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Check the tag, versions, and release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-check.mjs --tag
+
   publish:
     name: Publish npm
     # Only this fork's canonical repository may publish; a v* tag pushed to
     # any other copy of the repo must never ship to the zcode-acp-martty
-    # npm name.
+    # npm names. release-tag must pass first so a tag with missing notes or
+    # drifted versions never reaches npm.
     if: startsWith(github.ref, 'refs/tags/') && github.repository == 'william0wang/zcode-acp-martty'
-    needs: package
+    needs: [package, release-tag]
     runs-on: ubuntu-24.04
     environment: npm
     permissions:
@@ -216,7 +282,11 @@ jobs:
             *) DIST_TAG=latest ;;
           esac
           echo "publishing with dist-tag: $DIST_TAG"
-          npm publish ./dist/zcode-acp-martty-*.tgz --access public --tag "$DIST_TAG" --provenance
+          for package in ./dist/zcode-acp-martty-darwin-*.tgz ./dist/zcode-acp-martty-linux-*.tgz ./dist/zcode-acp-martty-win32-*.tgz; do
+            test -f "$package"
+            npm publish "$package" --access public --tag "$DIST_TAG" --provenance
+          done
+          npm publish ./dist/zcode-acp-martty-[0-9]*.tgz --access public --tag "$DIST_TAG" --provenance
 
   release:
     name: Create GitHub release

@@ -2,6 +2,7 @@
 
 mod acp;
 mod acp_auth;
+mod additional_dirs;
 mod acp_fs;
 mod acp_term;
 mod app;
@@ -62,10 +63,11 @@ USAGE:
 
 OPTIONS:
   -w, --workspace <dir>     agent workspace (default: cwd)
+      --add-dir <dir>       extra workspace root (repeatable, absolute path)
       --session-root <dir>  session JSONL root (default: $MARTTY_HOME/sessions)
       --session-id <id>     resume/continue a durable session id
       --provider <id>       provider route (default: deepseek-official)
-      --model <id>          model id (default: $DSH_MODEL or deepseek-v4-flash)
+      --model <id>          model id (default: $DSH_MODEL or deepseek-flash)
       --max-tokens <n>      per-request output token cap
       --base-url <url>      sets DEEPSEEK_BASE_URL for a spawned agent
       --api-key <key>       sets DEEPSEEK_API_KEY for a spawned agent
@@ -91,6 +93,7 @@ copies a word · shift+drag uses the terminal's native selection
 
 struct Args {
     workspace: Option<String>,
+    add_dirs: Vec<String>,
     session_root: Option<String>,
     session_id: Option<String>,
     provider: Option<String>,
@@ -116,6 +119,7 @@ fn parse_args() -> Result<Args> {
 fn parse_args_from(args: impl IntoIterator<Item = String>) -> Result<Args> {
     let mut args_out = Args {
         workspace: None,
+        add_dirs: Vec::new(),
         session_root: None,
         session_id: None,
         provider: None,
@@ -140,6 +144,7 @@ fn parse_args_from(args: impl IntoIterator<Item = String>) -> Result<Args> {
         };
         match arg.as_str() {
             "-w" | "--workspace" => args_out.workspace = Some(take("--workspace")?),
+            "--add-dir" => args_out.add_dirs.push(take("--add-dir")?),
             "--session-root" => args_out.session_root = Some(take("--session-root")?),
             "--session-id" => args_out.session_id = Some(take("--session-id")?),
             "--provider" => args_out.provider = Some(take("--provider")?),
@@ -233,27 +238,44 @@ fn build_config(args: &Args) -> Result<RuntimeConfig> {
         "acp".into()
     };
 
+    // Route defaults borrow the local dsh install's configured default
+    // (settings.yaml agent-default-model) before falling back to stock.
+    let provider = args
+        .provider
+        .clone()
+        .or(local.provider)
+        .unwrap_or_else(|| "deepseek-official".into());
+    let env_model = std::env::var("DSH_MODEL").ok();
+    let model = runtime::resolve_launch_model(
+        args.model.as_deref(),
+        env_model.as_deref(),
+        local.model.as_deref(),
+        &provider,
+    );
+
     Ok(RuntimeConfig {
         bin,
         cordis,
-        workspace,
+        workspace: workspace.clone(),
         session_root,
-        // Route defaults borrow the local dsh install's configured default
-        // (settings.yaml agent-default-model) before falling back to stock.
-        provider: args
-            .provider
-            .clone()
-            .or(local.provider)
-            .unwrap_or_else(|| "deepseek-official".into()),
-        model: args
-            .model
-            .clone()
-            .or_else(|| std::env::var("DSH_MODEL").ok())
-            .or(local.model)
-            .unwrap_or_else(|| "deepseek-v4-flash".into()),
+        provider,
+        model,
         max_tokens: args.max_tokens,
         base_url: args.base_url.clone(),
         api_key: args.api_key.clone(),
+        additional_directories: {
+            let requested: Vec<&str> = args.add_dirs.iter().map(String::as_str).collect();
+            let home = std::env::var("HOME")
+                .ok()
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    std::env::var("USERPROFILE")
+                        .ok()
+                        .filter(|value| !value.is_empty())
+                });
+            additional_dirs::validate(&requested, &workspace, home.as_deref())
+                .map_err(anyhow::Error::msg)?
+        },
     })
 }
 

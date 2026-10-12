@@ -51,15 +51,21 @@ Queue 标题位于 composer 顶沿，全部等待条目始终在同一个 compos
 展开；`Alt+↑` 进入选择态后可用 `↑/↓` 任选一条编辑。等待内容不进入 timeline，出队时才
 创建普通 user timeline cell；编辑、删除和预览更新也都不进入 ACP。没有 Client tree 的
 独立 painter 保留原生 shelf 作为降级显示。
-`Send Now` 的并发 prompt 若被 agent 拒绝，ACP transport
+`Send Now` 的投递方式按 initialize 响应协商：顶层 `_meta.steering.supported` 走通用的
+`_session/steering` 扩展（claude-agent-acp、codex-acp、deepseek-harness-acp 共用；`outcome:"injected"` /
+`startedNewTurn` 均视为已被 agent 接收，`promptRequired` 视为 deferred）；
+`_meta["minimax-code/extensions"].methods` 含 `mcode/session/steer` 走该方法（仅文本，
+带图片的 Send Now 直接 deferred，因为 MiniMax Code 的 `session/prompt` 拒绝并发）；
+都未宣告时发并发 `session/prompt`（旧版 agent 的默认约定）。任一路线被 agent 拒绝时，ACP transport
 只向 Client 回报 deferred，由同一 Client FIFO 接管，不在 transport 内保留第二份重试队列。
 
 ACP 的 prompt 调度与慢控制请求分开执行：`src/acp.rs` 持有每个 session
 的轮次和发送队列，`src/acp/control.rs` 执行控制请求。创建/恢复共用一个串行队列，
 使绑定结果保持与 Rust tab 的等待 FIFO 同序；配置操作按 session 分别串行，
 该 session 的下一轮 prompt 等待先前配置完成，其他 session 的 prompt、完成事件、
-取消和关闭继续处理。短控制请求保留 120 秒 deadline，整轮 prompt 与 steer 不使用
-这个总时长限制。Queue 的选择和编辑状态随 session 保存，后台会话同样遵守暂停规则。
+取消和关闭继续处理。短控制请求保留 120 秒 deadline。扩展路线的 steer
+（`_session/steering`、`mcode/session/steer`）同样使用这个 deadline；并发
+`session/prompt` 路线上的整轮 prompt 与 steer 不使用这个总时长限制。Queue 的选择和编辑状态随 session 保存，后台会话同样遵守暂停规则。
 
 原生 tab 是当前可见会话的唯一选择源。每次 bind 或 tab 切换，Rust 通过
 `_dsh/cordis/tui/session/active` request 把 session id（未绑定时为 `null`）投影到 Client tree；
@@ -143,7 +149,8 @@ standalone 的 `acpClient` 用稳定的 stdio 入口管理多个 ACP 连接。�
 不同 Agent 的 session id、认证 method id 和双向 RPC id 冲突由本地连接层隔离。
 单个连接的失败或等待认证不会销毁、重定向或阻塞其他连接的会话。
 退出 Client 时统一关闭所有子进程。profile 的 `config.stream` 仍由 Host 拥有。
-本地连接层附加的 `marttyConnection` 仅携带协商结果与连接身份供 Client 路由；
+本地连接层附加的 `marttyConnection` 仅携带协商结果与连接身份供 Client 路由，
+其中包括该连接 `initialize` 的 `_meta`（Send Now 据此为每个会话选择 steer 路线）；
 它不是 Agent 协议扩展，也不携带 TUI chrome。
 
 已配置的 npx/uvx recipe 直接启动，由 runner 复用缓存。选择器把持久化
@@ -155,7 +162,7 @@ standalone 的 `acpClient` 用稳定的 stdio 入口管理多个 ACP 连接。�
 验证成功的官方目录；没有缓存时使用随 npm `lib` 发布的
 `acp-registry.snapshot.json`。快照来自官方
 `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`，当前随包
-快照获取于 2026-09-05，不是手写 Harness 名单。发布时应更新该官方原始快照。
+快照获取于 2026-09-29，不是手写 Harness 名单。发布时应更新该官方原始快照。
 
 打开 Add Harness 立即返回可搜索的目录，不等待网络或 PATH 探测。目录刷新与
 本地探测在后台执行，同 id 的 select 原位更新且保留搜索/选择；离线时保留已显示
@@ -213,7 +220,7 @@ acp-session-status 标准 ACP 运行状态投影：连接/服务端/认证/会�
               acpSessionStats 的职责）
 Client runner Client inspect + code.client 挂载/停止
 TUI 壳        消费 Theme、slot 与通用 overlay 快照树；把本地 Queue/Agent 快照路由给对应 service
-acp-client    session/new · authenticate · prompt · cancel · config · commands
+acp-client    session/new · session/fork · authenticate · prompt · cancel · config · commands
               standalone 使用稳定代理流，可替换 ACP 子进程而不断开 TUI compositor；
               启动/替换时清空旧 Agent capability，initialize 后立即 session/new
               提供 acpSessionConfig（观察标准快照；set 仍由 Rust 发标准 ACP）
@@ -246,6 +253,12 @@ Bright、light=Tomorrow）、`everforest` / `iceberg` /
 `solarized`（均为 dark+light 双变体），色值取自
 [terminalcolors.com](https://terminalcolors.com/themes/)，随 Client boot
 以 sibling insert 行注册，`/theme` 直接可切。
+
+## 斜杠命令
+
+`/` 菜单里的自带命令由客户端解析。`/fork` 只在 `initialize` 的 `agentCapabilities.sessionCapabilities.fork` 为对象（标准写法 `{}`）时执行；否则该行禁用并写明原因。执行时对当前会话发 `session/fork`，参数与 `session/load` 相同（`cwd`、`mcpServers`，以及已声明时的 `additionalDirectories`），不带消息 id，不带 `_meta`。新 `sessionId` 按现有多标签打开并切过去，原会话保留。判断不看 Harness 名称或版本。
+
+自带命令占用原名。`available_commands_update` 里的同名命令保留在菜单中，显示为「Agent 名 + 原命令」（例如 `pi-acp /model`）。选中后把原来的 `/name …` 作为 prompt 发出。`/model` 与 `/session` 跟这条规则一样。
 
 ## 控制面与绘制面
 

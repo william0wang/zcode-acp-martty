@@ -502,6 +502,73 @@ fn tool_result_success_blocks() {
 }
 
 #[test]
+fn running_tool_output_reaches_the_transcript_before_completion() {
+    let content = parse_notification(
+        "session/update",
+        &json!({"sessionId":"s","update":{"sessionUpdate":"tool_call_update",
+            "toolCallId":"c1","status":"in_progress",
+            "content":[{"type":"content","content":{"type":"text","text":"first"}}]}}),
+    );
+    assert_eq!(content, vec![UiEvent::ToolOutputSnapshot {
+        session: "s".into(), call_id: "c1".into(), text: "first".into(),
+    }]);
+
+    let status_omitted = parse_notification(
+        "session/update",
+        &json!({"sessionId":"s","update":{"sessionUpdate":"tool_call_update",
+            "toolCallId":"c1",
+            "content":[{"type":"content","content":{"type":"text","text":"first second"}}]}}),
+    );
+    assert_eq!(status_omitted, vec![UiEvent::ToolOutputSnapshot {
+        session: "s".into(), call_id: "c1".into(), text: "first second".into(),
+    }]);
+
+    let terminal = parse_notification(
+        "session/update",
+        &json!({"sessionId":"s","update":{"sessionUpdate":"tool_call_update",
+            "toolCallId":"c1","status":"in_progress",
+            "_meta":{"terminal_output":{"terminal_id":"c1","data":"second"}}}}),
+    );
+    assert_eq!(terminal, vec![UiEvent::ToolOutputDelta {
+        session: "s".into(), call_id: "c1".into(), text: "second".into(),
+    }]);
+}
+
+#[test]
+fn completed_terminal_uses_full_raw_output_after_live_chunks() {
+    let result = parse_notification(
+        "session/update",
+        &json!({"sessionId":"s","update":{"sessionUpdate":"tool_call_update",
+            "toolCallId":"c1","status":"completed",
+            "rawOutput":{"output":"first second"},
+            "_meta":{"terminal_output":{"terminal_id":"c1","data":" second"}}}}),
+    );
+    assert_eq!(result, vec![UiEvent::ToolResult {
+        session: "s".into(), call_id: "c1".into(), is_error: false,
+        text: "first second".into(), error: None,
+    }]);
+}
+
+#[test]
+fn completed_terminal_without_raw_output_keeps_its_final_delta() {
+    let result = parse_notification(
+        "session/update",
+        &json!({"sessionId":"s","update":{"sessionUpdate":"tool_call_update",
+            "toolCallId":"c1","status":"completed",
+            "_meta":{"terminal_output":{"terminal_id":"c1","data":" second"}}}}),
+    );
+    assert_eq!(result, vec![
+        UiEvent::ToolOutputDelta {
+            session: "s".into(), call_id: "c1".into(), text: " second".into(),
+        },
+        UiEvent::ToolResult {
+            session: "s".into(), call_id: "c1".into(), is_error: false,
+            text: String::new(), error: None,
+        },
+    ]);
+}
+
+#[test]
 fn tool_result_is_error_block_flag() {
     let ev = parse_notification(
         "session.event",
@@ -1018,6 +1085,26 @@ fn catalog_prefers_agent_id_and_flattens_groups() {
 }
 
 #[test]
+fn catalog_drops_provider_echo_from_model_names() {
+    // pi-acp advertises `provider/id` values with `provider/Name` labels.
+    let options = json!([
+        {"type": "select", "id": "model", "category": "model", "options": [
+            {"value": "openai-codex/gpt-5.6-sol", "name": "openai-codex/GPT-5.6 Sol"},
+            {"value": "anthropic-proxy/claude-fable-5-1", "name": "anthropic-proxy/qw-pro-5 (-> claude-fable-5)"},
+            {"value": "anthropic-proxy/claude-sonnet-5", "name": "claude-sonnet-5"},
+            {"value": "deepseek/m1", "name": "deepseek/"}
+        ]}
+    ]);
+    let (models, _, _) = catalog_from_config_options(&options);
+    assert_eq!(models.len(), 4);
+    assert_eq!((models[0].provider.as_str(), models[0].id.as_str(), models[0].name.as_str()),
+        ("openai-codex", "gpt-5.6-sol", "GPT-5.6 Sol"));
+    assert_eq!(models[1].name, "qw-pro-5 (-> claude-fable-5)");
+    assert_eq!(models[2].name, "claude-sonnet-5", "names without the echo are untouched");
+    assert_eq!(models[3].name, "deepseek/", "an empty remainder keeps the original label");
+}
+
+#[test]
 fn session_modes_read_available_and_current() {
     let modes = json!({
         "currentModeId": "workspace-write",
@@ -1121,7 +1208,7 @@ fn the_final_chunks_meta_survives_a_merge() {
                 "sessionUpdate": "agent_message_chunk",
                 "content": { "type": "text", "text": "" },
                 "messageId": "1:1",
-                "_meta": { "dsh": { "event": "assistant_message", "model": "deepseek-v4-flash" } },
+                "_meta": { "dsh": { "event": "assistant_message", "model": "deepseek-flash" } },
             }),
         ),
     ];
@@ -1131,7 +1218,7 @@ fn the_final_chunks_meta_survives_a_merge() {
         panic!("rpc")
     };
     assert_eq!(params["update"]["content"]["text"], "body");
-    assert_eq!(params["update"]["_meta"]["dsh"]["model"], "deepseek-v4-flash");
+    assert_eq!(params["update"]["_meta"]["dsh"]["model"], "deepseek-flash");
 }
 
 fn bare_tool_update(session: &str, call: &str, status: &str) -> crate::bus::AppEvent {

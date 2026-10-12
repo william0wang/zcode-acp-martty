@@ -5,10 +5,12 @@
 # package via trusted publishing (OIDC — no NPM_TOKEN secret).
 #
 # One-time manual step: add this repo + package-npm.yml as the trusted
-# publisher workflow on npmjs.com for the zcode-acp-martty package (the
-# npmjs.com trusted-publisher form pins the workflow FILENAME, not the
-# workflow that actually publishes — the OIDC token only needs to originate
-# from the configured repository).
+# publisher workflow on npmjs.com for every published package — the thin
+# zcode-acp-martty package AND the five platform packages
+# (zcode-acp-martty-darwin-arm64, -darwin-x64, -linux-x64, -linux-arm64,
+# -win32-x64). The npmjs.com trusted-publisher form pins the workflow
+# FILENAME, not the workflow that actually publishes — the OIDC token only
+# needs to originate from the configured repository.
 #
 # NOTE: the release tag is pushed with GITHUB_TOKEN, which by design does not
 # trigger package-npm.yml's `tags` push trigger — that path stays reserved for
@@ -54,9 +56,12 @@ jobs:
         # Sync it on the release branch so the merge commit is self-consistent.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR: ${{ steps.release.outputs['npm--release-pr'] }}
+          RELEASE_PR: ${{ steps.release.outputs['npm--pr'] }}
         run: |
           set -euo pipefail
+          # The release branch predates this step, so it may not carry the
+          # script: keep a copy from the triggering ref before switching.
+          cp scripts/sync-cargo-lock.mjs /tmp/sync-cargo-lock.mjs
           branch="release-please--branches--main--components--zcode-acp-martty"
           if [ -n "$RELEASE_PR" ]; then
             branch="$(gh pr view "$RELEASE_PR" --json headRefName --jq .headRefName)"
@@ -67,7 +72,7 @@ jobs:
           fi
           git fetch --depth=1 origin "$branch"
           git checkout -B "$branch" FETCH_HEAD
-          node scripts/sync-cargo-lock.mjs
+          node /tmp/sync-cargo-lock.mjs
           if git diff --quiet -- Cargo.lock; then
             echo "Cargo.lock already in step"
             exit 0
@@ -237,7 +242,16 @@ jobs:
       - name: Pack npm packages
         run: |
           mkdir -p dist
-          node scripts/package-alias.mjs npm npm-martty zcode-acp-martty
+          node scripts/package-native.mjs package \
+            --vendor-root npm/vendor \
+            --package-root npm-native \
+            --version "$(node -p "require('./npm/package.json').version")" \
+            --name-prefix zcode-acp-martty \
+            --repository "git+https://github.com/william0wang/zcode-acp-martty.git"
+          for package in ./npm-native/*; do
+            npm pack "$package" --pack-destination dist
+          done
+          node scripts/package-alias.mjs npm npm-martty zcode-acp-martty --native-prefix zcode-acp-martty
           npm pack ./npm-martty --pack-destination dist
       - uses: actions/upload-artifact@v7
         with:
@@ -268,8 +282,15 @@ jobs:
       - name: Publish npm packages
         shell: bash
         # --tag latest keeps the fork channel on latest even for -zcode.N
-        # prerelease versions.
-        run: npm publish ./dist/zcode-acp-martty-*.tgz --access public --tag latest --provenance
+        # prerelease versions. Platform packages publish first: the thin
+        # package's optionalDependencies point at them.
+        run: |
+          set -euo pipefail
+          for package in ./dist/zcode-acp-martty-darwin-*.tgz ./dist/zcode-acp-martty-linux-*.tgz ./dist/zcode-acp-martty-win32-*.tgz; do
+            test -f "$package"
+            npm publish "$package" --access public --tag latest --provenance
+          done
+          npm publish ./dist/zcode-acp-martty-[0-9]*.tgz --access public --tag latest --provenance
       - name: Attach packages to the GitHub release
         shell: bash
         # No checkout in this job — GH_REPO gives gh its repo context.

@@ -28,7 +28,7 @@ async fn browser_auth_outlives_the_short_control_deadline() {
         let mut workers = ControlWorkers::default();
         workers.enqueue(Cmd::Authenticate { method_id: "login".into(), values: Default::default() },
             &cx, &bus, &Arc::new(Mutex::new(Surface::default())), &methods, &None,
-            std::path::Path::new("/tmp"), false, false, false, &done);
+            std::path::Path::new("/tmp"), false, false, false, false, &[], &done);
         started_rx.recv().await.unwrap();
         tokio::time::advance(Duration::from_secs(19 * 60)).await;
         for _ in 0..5 { tokio::task::yield_now().await; }
@@ -147,6 +147,7 @@ async fn check_slow_control(config: bool) {
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (bus, events) = std::sync::mpsc::channel();
     let (cmds, commands) = std::sync::mpsc::channel();
@@ -265,8 +266,9 @@ async fn prompts_and_steers_outlive_the_control_request_deadline() {
                 1,
                 done,
             );
-            spawn_steer_prompt(
+            spawn_steer(
                 cx,
+                SteerRoute::ConcurrentPrompt,
                 SessionId::new("s"),
                 vec!["follow up".into()],
                 2,
@@ -294,7 +296,7 @@ async fn prompts_and_steers_outlive_the_control_request_deadline() {
             );
             release.send(true).unwrap();
             assert!(done_rx.recv().await.unwrap().result.is_ok());
-            assert!(steer_rx.recv().await.unwrap().result.is_ok());
+            assert!(!steer_rx.recv().await.unwrap().deferred);
             task.await.unwrap();
             Ok(())
         })
@@ -343,6 +345,7 @@ fn model_switch_cfg() -> RuntimeConfig {
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     }
 }
 
@@ -404,6 +407,267 @@ async fn accepted_model_switch_folds_config_response() {
         )
     })
     .await;
+    let _ = cmds.send(Cmd::Shutdown);
+    let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
+}
+
+/// Exercise response-only agents through the real ACP control path.
+async fn permission_response_events(
+    mode_error: Option<i32>,
+    config_error: Option<i32>,
+) -> Vec<AppEvent> {
+    use agent_client_protocol::schema::v1::{
+        SessionConfigOption, SessionConfigSelectOption, SetSessionModeResponse,
+    };
+    let agent = Agent
+        .builder()
+        .on_receive_request(
+            async move |req: SetSessionModeRequest, responder, _cx| {
+                assert_eq!(req.session_id.to_string(), "permission-session");
+                assert_eq!(req.mode_id.to_string(), "plan");
+                match mode_error {
+                    Some(code) => {
+                        responder.respond_with_error(AcpError::new(code, "mode rejected"))
+                    }
+                    None => responder.respond(SetSessionModeResponse::new()),
+                }
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |req: SetSessionConfigOptionRequest, responder, _cx| {
+                assert!(
+                    mode_error.is_some(),
+                    "successful set_mode must not fall back"
+                );
+                assert_eq!(req.session_id.to_string(), "permission-session");
+                assert_eq!(serde_json::to_value(&req).unwrap()["configId"], "mode");
+                assert_eq!(serde_json::to_value(&req).unwrap()["value"], "plan");
+                match config_error {
+                    Some(code) => {
+                        responder.respond_with_error(AcpError::new(code, "config rejected"))
+                    }
+                    None => responder.respond(SetSessionConfigOptionResponse::new(vec![
+                        SessionConfigOption::select(
+                            "mode",
+                            "Mode",
+                            "plan",
+                            vec![
+                                SessionConfigSelectOption::new("build", "Build"),
+                                SessionConfigSelectOption::new("plan", "Plan"),
+                            ],
+                        ),
+                    ])),
+                }
+            },
+            on_receive_request!(),
+        );
+    let (bus, events) = std::sync::mpsc::channel();
+    Client
+        .builder()
+        .connect_with(agent, move |cx: ConnectionTo<Agent>| async move {
+            let (done, _done_rx) = tokio::sync::mpsc::unbounded_channel();
+            run_control(
+                Cmd::SetPermission {
+                    session_id: "permission-session".into(),
+                    preset: "plan".into(),
+                },
+                cx,
+                bus,
+                Arc::new(Mutex::new(Surface::default())),
+                vec![],
+                None,
+                std::path::PathBuf::from("/tmp"),
+                false,
+                false,
+                false,
+                false,
+                Vec::new(),
+                done,
+            )
+            .await;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    events.try_iter().collect()
+}
+
+#[tokio::test]
+async fn permission_mode_acknowledgement_updates_the_owning_session() {
+    let events = permission_response_events(None, None).await;
+    assert!(
+        events.iter().any(|event| matches!(event,
+            AppEvent::Ctl(CtlEvent::SessionModes { session_id: Some(id), current: Some(mode), .. })
+                if id == "permission-session" && mode == "plan"
+        )),
+        "set_mode acknowledgement must update the mode without a notification"
+    );
+}
+
+#[tokio::test]
+async fn permission_config_fallback_applies_the_returned_catalog_and_mode() {
+    let events = permission_response_events(Some(-32601), None).await;
+    assert!(events.iter().any(|event| matches!(event,
+        AppEvent::Ctl(CtlEvent::SessionModes { session_id: Some(id), current: Some(mode), modes })
+            if id == "permission-session" && mode == "plan"
+                && modes.iter().map(|m| m.id.as_str()).collect::<Vec<_>>() == ["build", "plan"]
+    )), "fallback response must refresh both the catalog and selected mode");
+}
+
+#[tokio::test]
+async fn permission_config_fallback_reports_rejection_without_success() {
+    let events = permission_response_events(Some(-32601), Some(-32602)).await;
+    assert!(
+        events.iter().any(|event| matches!(event,
+            AppEvent::Ctl(CtlEvent::TuiOpFailed(message)) if message.contains("config rejected")
+        )),
+        "the fallback error must reach the UI"
+    );
+    assert!(
+        !events.iter().any(|event| matches!(
+            event,
+            AppEvent::Ctl(CtlEvent::TuiOpDone(_) | CtlEvent::SessionModes { .. })
+        )),
+        "a rejected request must not report success or change the mode"
+    );
+}
+
+#[tokio::test]
+async fn permission_auth_failure_opens_login_without_changing_mode() {
+    let auth_code = i32::from(AcpError::auth_required().code);
+    for (mode_error, config_error) in [(Some(auth_code), None), (Some(-32601), Some(auth_code))] {
+        let events = permission_response_events(mode_error, config_error).await;
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, AppEvent::Ctl(CtlEvent::OpenAuth))),
+            "either request path must surface authentication failures"
+        );
+        assert!(
+            !events.iter().any(|event| matches!(
+                event,
+                AppEvent::Ctl(CtlEvent::TuiOpDone(_) | CtlEvent::SessionModes { .. })
+            )),
+            "authentication failure must not report a changed mode"
+        );
+    }
+}
+
+/// The same model id can be advertised under several providers (an OAuth
+/// account and a proxy both serving `gpt-5.6-sol`). The picker's provider
+/// must decide which `provider/id` value reaches the agent — the first id
+/// match used to win, silently switching to the wrong provider.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_switch_honours_the_picked_provider_for_duplicate_ids() {
+    use agent_client_protocol::schema::v1::{SessionConfigOption, SessionConfigSelectOption};
+    // Real agents (pi-acp) echo the full option list on every switch; an
+    // empty response would fold an empty catalog back into the session.
+    fn model_option(current: String) -> Vec<SessionConfigOption> {
+        vec![SessionConfigOption::select(
+            "model",
+            "Model",
+            current,
+            vec![
+                SessionConfigSelectOption::new("openai-codex/gpt-5.6-sol", "openai-codex/GPT-5.6 Sol"),
+                SessionConfigSelectOption::new("anthropic-proxy/gpt-5.6-sol", "anthropic-proxy/gpt-5.6-sol"),
+            ],
+        )]
+    }
+    let sent: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&sent);
+    let agent = Agent
+        .builder()
+        .on_receive_request(
+            async move |req: InitializeRequest, responder, _cx| {
+                responder.respond(
+                    InitializeResponse::new(req.protocol_version)
+                        .agent_capabilities(AgentCapabilities::new()),
+                )
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |_req: NewSessionRequest, responder, _cx| {
+                responder.respond(
+                    NewSessionResponse::new(SessionId::new("s1"))
+                        .config_options(model_option("openai-codex/gpt-5.6-sol".into())),
+                )
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |req: SetSessionConfigOptionRequest, responder, _cx| {
+                let value = serde_json::to_value(&req).unwrap()["value"].clone();
+                let value = value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string());
+                seen.lock().unwrap().push(value.clone());
+                responder.respond(SetSessionConfigOptionResponse::new(model_option(value)))
+            },
+            on_receive_request!(),
+        );
+    let (bus, events) = std::sync::mpsc::channel();
+    let (cmds, commands) = std::sync::mpsc::channel();
+    let task = tokio::spawn(connect(agent, model_switch_cfg(), bus, commands));
+    wait_event(&events, |event| {
+        matches!(event, AppEvent::Ctl(CtlEvent::SessionBound { session_id, .. }) if session_id == "s1")
+    })
+    .await;
+    // Catalog folded from session/new: both providers are known.
+    wait_event(&events, |event| {
+        matches!(
+            event,
+            AppEvent::Ctl(CtlEvent::Catalog { models, .. }) if models.len() == 2
+        )
+    })
+    .await;
+    for provider in ["anthropic-proxy", "openai-codex"] {
+        cmds.send(Cmd::SelectModel {
+            session_id: "s1".into(),
+            provider: Some(provider.into()),
+            model: Some("gpt-5.6-sol".into()),
+            effort: None,
+        })
+        .unwrap();
+        wait_event(&events, |event| {
+            matches!(
+                event,
+                AppEvent::Ctl(CtlEvent::Catalog { session_id: Some(sid), .. }) if sid == "s1"
+            )
+        })
+        .await;
+    }
+    // A provider the catalog does not list still travels as `provider/id`;
+    // no provider keeps the legacy first-id-match behaviour.
+    cmds.send(Cmd::SelectModel {
+        session_id: "s1".into(),
+        provider: Some("other-proxy".into()),
+        model: Some("gpt-5.6-sol".into()),
+        effort: None,
+    })
+    .unwrap();
+    cmds.send(Cmd::SelectModel {
+        session_id: "s1".into(),
+        provider: None,
+        model: Some("gpt-5.6-sol".into()),
+        effort: None,
+    })
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while sent.lock().unwrap().len() < 4 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("four model switches reach the agent");
+    assert_eq!(
+        *sent.lock().unwrap(),
+        vec![
+            "anthropic-proxy/gpt-5.6-sol".to_string(),
+            "openai-codex/gpt-5.6-sol".to_string(),
+            "other-proxy/gpt-5.6-sol".to_string(),
+            "openai-codex/gpt-5.6-sol".to_string(),
+        ]
+    );
     let _ = cmds.send(Cmd::Shutdown);
     let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
 }

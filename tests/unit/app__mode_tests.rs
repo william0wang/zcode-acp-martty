@@ -25,10 +25,11 @@ fn test_cfg() -> RuntimeConfig {
         workspace: "/tmp".into(),
         session_root: fresh_root(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     }
 }
 
@@ -1235,7 +1236,7 @@ fn model_picker_highlights_the_streamed_model_not_the_config_default() {
     let (mut app, ctl, _rx) = test_app();
     // The config default is only a fallback: once a turn streamed on a
     // different model, the picker must mark the running one (issue #102).
-    app.cfg.model = "deepseek-v4-flash".into();
+    app.cfg.model = "deepseek-flash".into();
     app.transcript.last_model = Some("deepseek-v4-pro".into());
 
     app.open_model_picker(&ctl);
@@ -1281,7 +1282,7 @@ fn slash_model_menu_preselects_the_running_model() {
     let (mut app, ctl, _rx) = test_app();
     // The inline option menu (typed `/model `) follows the same effective
     // model as the picker: streamed model, not the config default (#102).
-    app.cfg.model = "deepseek-v4-flash".into();
+    app.cfg.model = "deepseek-flash".into();
     app.transcript.last_model = Some("deepseek-v4-pro".into());
     app.input.set("/model".into());
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), &ctl);
@@ -1572,11 +1573,13 @@ fn acp_session_list_opens_picker_and_prefix_resumes() {
                     id: "s-old".into(),
                     title: Some("hello".into()),
                     updated_at: Some("yesterday".into()),
+                    additional_directories: Vec::new(),
                 },
                 SessionListItem {
                     id: "s-other".into(),
                     title: None,
                     updated_at: None,
+                    additional_directories: Vec::new(),
                 },
             ],
             prefix: None,
@@ -1597,6 +1600,7 @@ fn acp_session_list_opens_picker_and_prefix_resumes() {
                 id: "s-old".into(),
                 title: None,
                 updated_at: None,
+                additional_directories: Vec::new(),
             }],
             prefix: Some("s-old".into()),
             limit: usize::MAX,
@@ -1621,6 +1625,7 @@ fn acp_session_list_response_is_dropped_after_switching_tabs() {
                 id: "s-old".into(),
                 title: None,
                 updated_at: None,
+                additional_directories: Vec::new(),
             }],
             prefix: Some("s-old".into()),
             limit: usize::MAX,
@@ -1663,6 +1668,7 @@ fn acp_session_list_enriches_rows_with_local_summaries() {
                 id: "s-local".into(),
                 title: None,
                 updated_at: None,
+                additional_directories: Vec::new(),
             }],
             prefix: None,
             limit: usize::MAX,
@@ -1695,6 +1701,8 @@ fn agent_caps_gate_resume_to_session_list() {
             load_session: true,
             list_session: true,
             resume_session: true,
+            fork_session: false,
+            additional_directories: false,
         }),
         &ctl,
     );
@@ -1719,6 +1727,8 @@ fn resume_capability_can_restore_an_exact_id_without_load_or_list() {
             load_session: false,
             list_session: false,
             resume_session: true,
+            fork_session: false,
+            additional_directories: false,
         }),
         &ctl,
     );
@@ -3287,6 +3297,7 @@ fn skills_merge_into_slash_menu_and_builtins_shadow() {
             client_command: false,
         },
     ];
+    app.server_info = Some("pi-acp".into());
     app.input.set("/".into());
     let menu = app.slash_matches();
     let skills: Vec<&str> = menu
@@ -3296,8 +3307,18 @@ fn skills_merge_into_slash_menu_and_builtins_shadow() {
         .collect();
     assert_eq!(
         skills,
-        ["commit-helper"],
-        "builtin /help shadows the skill name"
+        ["commit-helper", "help"],
+        "a harness /help stays in the menu beside the builtin"
+    );
+    let help = menu
+        .iter()
+        .find(|entry| entry.skill && entry.name == "help")
+        .expect("prefixed /help");
+    assert_eq!(help.usage, "pi-acp /help");
+    assert!(
+        menu.iter()
+            .any(|entry| !entry.skill && entry.name == "help" && entry.usage == "/help"),
+        "the builtin keeps the bare name"
     );
     app.input.set("/commit".into());
     let menu = app.slash_matches();
@@ -5155,4 +5176,118 @@ fn finished_last_subagent_clears_an_open_inline_selection() {
         app.agents_snapshot().selected_id, None,
         "last task ended → the open selection clears"
     );
+}
+
+#[test]
+fn agent_reported_model_overrides_a_stale_optimistic_pick() {
+    let (mut app, ctl, _rx) = test_app();
+    let session = app.session_id.clone();
+    app.selected_model = Some("gpt-5.6-sol".into());
+
+    // The same id under a provider confirms the pick.
+    app.handle(
+        AppEvent::Ui(crate::events::UiEvent::SessionModel {
+            session: session.clone(),
+            model: "anthropic-proxy/gpt-5.6-sol".into(),
+        }),
+        &ctl,
+    );
+    assert_eq!(app.selected_model.as_deref(), Some("gpt-5.6-sol"));
+    assert_eq!(app.session_model.as_deref(), Some("anthropic-proxy/gpt-5.6-sol"));
+
+    // A different model is what the session actually runs on: the report
+    // wins over the optimistic status-bar value.
+    app.handle(
+        AppEvent::Ui(crate::events::UiEvent::SessionModel {
+            session,
+            model: "anthropic-proxy/claude-fable-5-1".into(),
+        }),
+        &ctl,
+    );
+    assert_eq!(app.selected_model, None, "stale pick dropped");
+    assert_eq!(app.session_model.as_deref(), Some("anthropic-proxy/claude-fable-5-1"));
+}
+
+/// The whole #119 flow through the App: pi-acp's startup context arrives
+/// right after the bind, before any prompt. It must stay off the welcome
+/// page, never spin the UI, and the first reply must render below the first
+/// prompt in its own block instead of inside the context's last list item.
+#[test]
+fn first_reply_renders_below_the_prompt_after_out_of_turn_startup_context() {
+    use crate::events::UiEvent as E;
+    let (mut app, ctl, _rx) = test_app();
+    app.session_bound = true;
+    let session = app.session_id.clone();
+    let startup = "pi v0.80.7\n---\n\n## Skills\n- /Users/me/.pi/agent/skills/agent-browser/SKILL.md\n\n## Extensions\n- npm:pi-subagents\n  - index.ts\n";
+    app.handle(
+        AppEvent::Ui(E::TextDelta {
+            session: session.clone(),
+            text: startup.into(),
+        }),
+        &ctl,
+    );
+    let welcome = crate::ui::dump_frame(&mut app, 100, 36);
+    println!("--- before the first prompt ---\n{welcome}");
+    assert!(app.show_banner, "context alone must not dismiss the welcome page");
+    assert!(
+        !app.transcript.streaming(),
+        "out-of-turn context must not spin the UI"
+    );
+
+    app.send_agent_text("damn".into(), &ctl);
+    for ev in [
+        E::TurnStart {
+            session: session.clone(),
+            turn: 0,
+        },
+        E::SessionStatus {
+            session: session.clone(),
+            running: true,
+        },
+        E::ReasoningDelta {
+            session: session.clone(),
+            text: "user is frustrated".into(),
+        },
+        E::TextDelta {
+            session: session.clone(),
+            text: "Something break? Give me the error or the file and I'll dig in.".into(),
+        },
+    ] {
+        app.handle(AppEvent::Ui(ev), &ctl);
+    }
+    let streaming = crate::ui::dump_frame(&mut app, 100, 36);
+    println!("--- first reply streaming ---\n{streaming}");
+    for ev in [
+        E::TurnEnd {
+            session: session.clone(),
+            kind: "completed".into(),
+        },
+        E::SessionStatus {
+            session: session.clone(),
+            running: false,
+        },
+    ] {
+        app.handle(AppEvent::Ui(ev), &ctl);
+    }
+    let settled = crate::ui::dump_frame(&mut app, 100, 36);
+    println!("--- turn settled ---\n{settled}");
+
+    for frame in [&streaming, &settled] {
+        let row = |needle: &str| {
+            frame
+                .lines()
+                .position(|line| line.contains(needle))
+                .unwrap_or_else(|| panic!("{needle:?} missing:\n{frame}"))
+        };
+        assert!(row("index.ts") < row("damn"), "context above the prompt:\n{frame}");
+        assert!(
+            row("damn") < row("Something break?"),
+            "reply below the prompt:\n{frame}"
+        );
+        assert!(
+            !frame.contains("index.ts Something"),
+            "reply glued to the context list:\n{frame}"
+        );
+        assert!(!frame.contains("index.ts▍"), "caret left on the context:\n{frame}");
+    }
 }

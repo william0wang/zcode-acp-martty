@@ -20,7 +20,7 @@
   <a href="https://www.npmjs.com/package/martty"><img src="https://img.shields.io/npm/v/martty?logo=npm&color=cb3837" alt="npm version" /></a>
   <a href="https://www.npmjs.com/package/martty"><img src="https://img.shields.io/npm/dm/martty" alt="npm downloads" /></a>
   <a href="https://github.com/openma-ai/Martty/actions/workflows/package-npm.yml"><img src="https://github.com/openma-ai/Martty/actions/workflows/package-npm.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/node/v/martty" alt="Node.js 18+" />
+  <img src="https://img.shields.io/node/v/martty" alt="Node.js 22.19+" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT" /></a>
 </p>
 
@@ -55,7 +55,7 @@ and iterate on its own terminal capabilities.
 
 ### Recommended: dsh TUI surface plugin
 
-Requires Node.js 18+. Install the official
+Requires Node.js 22.19+. Install the official
 [DeepSeek Harness](https://github.com/deepseek-ai/dsh), then add the TUI
 directly to the `martty` profile:
 
@@ -160,7 +160,8 @@ All three entry points share the official ACP Registry: edit `settings.json`, us
 `martty harness` CLI above, or enter `/harness` in the running TUI for the
 native single-select form. `harness find` reads a cached/bundled snapshot of
 `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json` and supplements it with
-local PATH discovery; it is not an npm package search or an immediate switch. `npx` and `uvx`
+local PATH discovery; it is not an npm package search or an immediate switch. Pi uses
+`@openma/pi-acp@0.1.6` while the bundled raw catalog remains unchanged. `npx` and `uvx`
 distributions are launch recipes without implicit `--yes` or `--prefer-offline` flags. Selecting
 a `binary` distribution confirms and installs it under
 `$MARTTY_HOME/bin/<id>/<version>/<platform>`, verifies its SHA-256 when provided, and never
@@ -477,6 +478,23 @@ Agent-oriented, fully verifiable installation steps live in the
 | Mouse drag | Copy on release; double-click a word; `shift+drag` uses native selection |
 | `!cmd` | Run a command in the client's session-local shell, outside the agent; the shell starts in the workspace and keeps `cd`, environment variables, and other state for later `!` commands until the TUI exits |
 
+### Session modes and Shift+Tab
+
+Use `/permission` to see the current agent's session modes, or press
+`Shift+Tab` to cycle through them. Martty updates the selected mode after the
+agent accepts the request, including agents that return only a response and
+send no separate notification. If the agent rejects the change, Martty shows
+an error and keeps the previous selection.
+
+Mode names and their effects belong to the agent. For example, OpenCode may
+advertise `build` and `plan`; these are not equivalent to DSH's `read-only`,
+`workspace-write`, and `danger-full-access` permission presets. Switching modes
+does not grant permissions beyond those enforced by the agent.
+
+To select a mode directly, use `/permission <id>` with an ID from the picker.
+If a shortcut does not reach Martty, try the picker and check your terminal's
+key bindings.
+
 ### Composer text editing
 
 | Key | Behavior |
@@ -570,11 +588,16 @@ default; run `/liang on` to summon him.
 
 ## Build from source
 
-Requires Rust stable and Node.js 18+:
+Requires Rust stable and Node.js 22.19+. The JavaScript test suite also uses
+Python 3 and `pexpect` for its local PTY fixture. If needed, create and activate
+a Python virtual environment, then run `python -m pip install pexpect` before
+testing; the fixture does not call a model.
 
 ```sh
-make rust-test
-node --test scripts/package-native.test.mjs
+npm ci --prefix npm --ignore-scripts --no-audit --no-fund
+cargo test --locked
+cargo check --locked --tests
+npm test --prefix npm
 bash scripts/build-npm.sh
 ```
 
@@ -585,31 +608,72 @@ repository's `target` exceeds 20 GiB or free disk falls below 10 GiB.
 explicitly; override the thresholds with `RUST_CACHE_MAX_GIB` /
 `RUST_DISK_MIN_GIB`.
 
+The profile installation matrix also needs pnpm on `PATH` (CI uses 10.2.0)
+and a built ACP package. To use the package installed by `npm ci`, run from
+the repository root:
+
+```sh
+DSH_TUI_ACP_ROOT="$PWD/npm/node_modules/@openma/deepseek-harness-acp" \
+  DSH_TUI_LOCAL_DEPS=1 npm run test:profile-install-matrix --prefix npm
+```
+
+Run the build and test commands from the repository root. JavaScript
+dependencies and test scripts belong to `npm/`; there is no root `package.json`. For a focused test,
+run `node --test scripts/<name>.test.mjs`. To inspect a rendered demo without
+an interactive terminal or a model request, run:
+
+```sh
+cargo run --locked -- --dump-frame 100x34
+```
+
 Use `make tui-test` for the real development profile. It rebuilds
 `target/debug/martty` first, then launches `tui-test` with `MARTTY_BIN`, so
 Node HMR cannot leave the Rust painter on an older process image.
 
 The local script builds only the current platform and writes a tarball to
-`dist/`. The `Package and publish npm` GitHub Actions workflow builds and then
-assembles these paths into one npm package:
+`dist/`. The `Package and publish npm` GitHub Actions workflow builds and
+publishes one npm package per native platform. The thin `martty` package lists
+them as optional dependencies, so npm installs only the matching platform:
 
 ```text
-npm/vendor/darwin-arm64/martty
-npm/vendor/darwin-x64/martty
-npm/vendor/linux-x64/martty
-npm/vendor/win32-x64/martty.exe
+@openma/martty-darwin-arm64
+@openma/martty-darwin-x64
+@openma/martty-linux-arm64
+@openma/martty-linux-x64
+@openma/martty-win32-x64
 ```
 
 Pushing a tag that matches both `npm/package.json` and `Cargo.toml` (for example,
 `v0.1.0`) publishes to `latest` through npm Trusted Publishing (OIDC), then
-creates a GitHub Release with the tarball. A version mismatch fails before
+creates a GitHub Release with all six tarballs. A version mismatch fails before
 publishing.
+For the first split release, an npm organization owner must publish each new
+`@openma/martty-*` package once and configure its Trusted Publisher for
+`openma-ai/Martty` / `package-npm.yml` (environment `npm`, with `npm publish`
+allowed) before pushing the release tag.
+
+This fork (`zcode-acp-martty`) keeps the same split packaging but publishes
+the platform packages under its own names:
+
+```text
+zcode-acp-martty-darwin-arm64
+zcode-acp-martty-darwin-x64
+zcode-acp-martty-linux-arm64
+zcode-acp-martty-linux-x64
+zcode-acp-martty-win32-x64
+```
+
+The thin `zcode-acp-martty` package lists them as optional dependencies; the
+packaging scripts inject the names via `--name-prefix` / `--native-prefix`
+(`scripts/package-native.mjs`, `scripts/package-alias.mjs`). Before the first
+split release, configure an npm Trusted Publisher for each of the five package
+names on npmjs.com (repository `william0wang/zcode-acp-martty`, workflow
+`package-npm.yml`).
 
 ## Troubleshooting
 
-- **`no native binary for ...`**: the installed package does not contain your
-  platform. Confirm that you installed the latest version and check the support
-  matrix.
+- **Missing native package:** reinstall `martty` with optional dependencies
+  enabled (`npm install --include=optional martty`) and check the support matrix.
 - **Built-in ACP cannot start:** reinstall the latest `martty`; a source
   checkout must have its `npm/` dependencies installed. Configure
   `DSH_TUI_AGENT`, `config.agent`, or `config.stream` for another ACP server.

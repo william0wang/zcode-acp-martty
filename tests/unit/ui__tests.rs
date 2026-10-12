@@ -27,6 +27,7 @@ fn test_app() -> App {
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (tx, _rx) = mpsc::channel();
     App::new(Some(Theme::dark()), cfg, "dsh-test".into(), true, false, tx)
@@ -43,6 +44,7 @@ fn live_test_app() -> App {
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     };
     let (tx, _rx) = mpsc::channel();
     App::new(Some(Theme::dark()), cfg, "pending".into(), false, true, tx)
@@ -339,9 +341,9 @@ fn model_chip_prefers_fresh_pick_until_a_turn_realizes_it() {
     let mut app = test_app();
     // A previous turn streamed on pro; the user just picked flash.
     app.transcript.last_model = Some("deepseek-v4-pro".into());
-    app.selected_model = Some("deepseek-v4-flash".into());
+    app.selected_model = Some("deepseek-flash".into());
     let s = flat(status_right(&app));
-    assert!(s.contains("deepseek-v4-flash"), "{s}");
+    assert!(s.contains("deepseek-flash"), "{s}");
     assert!(!s.contains("deepseek-v4-pro"), "{s}");
     // Without a pick, the streamed model rules.
     app.selected_model = None;
@@ -2333,7 +2335,7 @@ fn model_picker_marks_the_streamed_model_when_it_differs_from_config() {
     app.show_banner = false;
     // A turn streamed on `deepseek-v4-pro` while the config still names the
     // fallback: the picker must mark the running model (issue #102).
-    app.cfg.model = "deepseek-v4-flash".into();
+    app.cfg.model = "deepseek-flash".into();
     app.transcript.last_model = Some("deepseek-v4-pro".into());
     app.picker = Some(Picker {
         offset: 0,
@@ -2342,8 +2344,8 @@ fn model_picker_marks_the_streamed_model_when_it_differs_from_config() {
         sel: 1,
         items: vec![
             PickerItem {
-                id: "deepseek-v4-flash".into(),
-                label: "deepseek-v4-flash".into(),
+                id: "deepseek-flash".into(),
+                label: "deepseek-flash".into(),
                 meta: String::new(),
                 provider: None,
             },
@@ -2437,7 +2439,7 @@ fn slash_model_menu_marks_the_running_model() {
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     let mut app = test_app();
     app.show_banner = false;
-    app.cfg.model = "deepseek-v4-flash".into();
+    app.cfg.model = "deepseek-flash".into();
     app.transcript.last_model = Some("deepseek-v4-pro".into());
     app.input.set("/model".into());
     let (ctl, _commands) = crate::controller::tests::test_controller();

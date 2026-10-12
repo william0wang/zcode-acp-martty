@@ -117,10 +117,11 @@ fn loop_cfg() -> RuntimeConfig {
             .to_string_lossy()
             .into_owned(),
         provider: "deepseek-official".into(),
-        model: "deepseek-v4-flash".into(),
+        model: "deepseek-flash".into(),
         max_tokens: None,
         base_url: None,
         api_key: None,
+        additional_directories: Vec::new(),
     }
 }
 

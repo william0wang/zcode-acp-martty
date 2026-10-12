@@ -7,7 +7,14 @@ const statsView = await import(pathToFileURL(
   path.join(import.meta.dirname, '../npm/lib/stats-view.js'),
 ).href).catch(() => ({}))
 
-test('the stats Client Plugin contributes only through the composer dock', () => {
+test('the stats Client Plugin contributes only through the composer dock', (t) => {
+  // The fork's DSH_TUI_STATS allowlist filters the dock; an inherited shell
+  // value must not shrink the default-full dock this test asserts.
+  const inheritedStats = process.env.DSH_TUI_STATS
+  delete process.env.DSH_TUI_STATS
+  t.after(() => {
+    if (inheritedStats !== undefined) process.env.DSH_TUI_STATS = inheritedStats
+  })
   assert.deepEqual(statsView.inject, ['acpSessionStats', 'tuiSlots'])
   assert.equal(typeof statsView.apply, 'function')
   if (typeof statsView.apply !== 'function') return

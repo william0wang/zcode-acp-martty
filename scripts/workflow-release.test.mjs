@@ -17,7 +17,7 @@ test('release jobs are gated to the current canonical repository', () => {
   assert.doesNotMatch(workflow, /github\.repository == 'openma-ai\/Martty'/)
 })
 
-test('release workflow packages and publishes only martty', () => {
+test('release workflow publishes platform packages before the thin martty package', () => {
   assert.match(
     workflow,
     /cache: npm\n\s+cache-dependency-path: npm\/package-lock\.json/,
@@ -26,11 +26,31 @@ test('release workflow packages and publishes only martty', () => {
     workflow,
     /npm ci --prefix npm --ignore-scripts --no-audit --no-fund/,
   )
-  assert.match(workflow, /package-alias\.mjs npm npm-martty zcode-acp-martty/)
+  assert.match(workflow, /package-native\.mjs package/)
+  assert.match(workflow, /--name-prefix zcode-acp-martty/)
+  assert.match(workflow, /package-alias\.mjs npm npm-martty zcode-acp-martty --native-prefix zcode-acp-martty/)
+  assert.match(workflow, /npm pack "\$package" --pack-destination dist/)
   assert.match(workflow, /npm pack \.\/npm-martty --pack-destination dist/)
-  assert.match(workflow, /npm publish \.\/dist\/zcode-acp-martty-\*\.tgz/)
+  assert.match(workflow, /npm publish "\$package" --access public --tag "\$DIST_TAG" --provenance/)
+  assert.match(workflow, /npm publish \.\/dist\/zcode-acp-martty-\[0-9\]\*\.tgz/)
+  assert.ok(
+    workflow.indexOf('npm publish "$package"')
+      < workflow.indexOf('npm publish ./dist/zcode-acp-martty-[0-9]'),
+  )
   assert.doesNotMatch(workflow, /npm pack \.\/npm --pack-destination dist/)
   assert.doesNotMatch(workflow, /npm publish \.\/dist\/openma-deepseek-harness-tui/)
+})
+
+test('release-check notices unreleased pull requests and gates publish on the tag', () => {
+  assert.match(workflow, /release-check:\n\s+name: Release check/)
+  assert.match(workflow, /if: github\.event_name == 'pull_request'/)
+  assert.match(workflow, /PR_LABELS: \$\{\{ join\(github\.event\.pull_request\.labels\.\*\.name, ','\) \}\}/)
+  assert.match(workflow, /run: node scripts\/release-check\.mjs\n/)
+  assert.match(workflow, /release-tag:\n\s+name: Release tag/)
+  assert.match(workflow, /run: node scripts\/release-check\.mjs --tag/)
+  assert.match(workflow, /needs: \[package, release-tag\]/)
+  const releaseTag = workflow.indexOf('release-tag:')
+  assert.equal(workflow.slice(0, releaseTag).includes('release-check.mjs --tag'), false)
 })
 
 test('Windows CI boots an installed profile through the real Node loader', () => {
